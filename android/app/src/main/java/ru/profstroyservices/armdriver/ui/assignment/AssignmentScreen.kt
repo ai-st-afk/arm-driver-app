@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ru.profstroyservices.armdriver.R
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
+import ru.profstroyservices.armdriver.ui.components.LabeledField
 
 private val ButtonHeight = 56.dp
 
@@ -95,21 +96,19 @@ private fun AssignmentContent(
 ) {
     val assignment: AssignmentDto = state.assignment
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(text = "Разнарядка № ${assignment.number ?: assignment.id}", style = MaterialTheme.typography.headlineSmall)
-        Text(text = "Дата выезда: ${assignment.departureDay}", style = MaterialTheme.typography.bodyLarge)
-        Text(
-            text = "Водитель: ${assignment.driver.name ?: assignment.driver.id}",
-            style = MaterialTheme.typography.bodyLarge
+    Text(text = "Разнарядка № ${assignment.number ?: assignment.id}", style = MaterialTheme.typography.headlineSmall)
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LabeledField(label = "Дата выезда", value = assignment.departureDay)
+        LabeledField(
+            label = "Водитель",
+            value = assignment.driver.name ?: assignment.driver.id
         )
-        Text(
-            text = "Машина: ${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim(),
-            style = MaterialTheme.typography.bodyLarge
+        LabeledField(
+            label = "Машина",
+            value = "${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim()
         )
-        Text(
-            text = "Ездок в разнарядке: ${assignment.trips.size}",
-            style = MaterialTheme.typography.bodySmall
-        )
+        LabeledField(label = "Ездок в разнарядке", value = assignment.trips.size.toString())
     }
 
     Button(

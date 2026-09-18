@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ru.profstroyservices.armdriver.data.network.TripDto
 import ru.profstroyservices.armdriver.data.repository.EventTypes
+import ru.profstroyservices.armdriver.ui.components.LabeledField
 
 private val ButtonHeight = 56.dp
 private val CompletedGreen = Color(0xFF2E7D32)
@@ -120,15 +121,18 @@ private fun TripCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
-        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(text = "Ездка ${trip.order}", style = MaterialTheme.typography.titleMedium)
             if (state.isCancelled) {
                 Text(text = "снято", color = MaterialTheme.colorScheme.error)
             }
-            Text(text = "Погрузка: ${trip.loadPoint.address ?: trip.loadPoint.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-            Text(text = "Разгрузка: ${trip.unloadPoint.address ?: trip.unloadPoint.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-            trip.trailer.plate?.let { Text(text = "Прицеп: $it", style = MaterialTheme.typography.bodyMedium) }
-            trip.cargo.composition?.let { Text(text = "Груз: $it", style = MaterialTheme.typography.bodyMedium) }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LabeledField(label = "Погрузка", value = trip.loadPoint.address ?: trip.loadPoint.name ?: "—")
+                LabeledField(label = "Разгрузка", value = trip.unloadPoint.address ?: trip.unloadPoint.name ?: "—")
+                trip.trailer.plate?.let { LabeledField(label = "Прицеп", value = it) }
+                trip.cargo.composition?.let { LabeledField(label = "Груз", value = it) }
+            }
 
             if (!state.isCancelled) {
                 if (state.doneTypes.contains(EventTypes.RAZGRUZILSYA)) {
