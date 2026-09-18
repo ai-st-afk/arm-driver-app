@@ -1,0 +1,5 @@
+# Скопируй в local.properties (не коммитится) и заполни реальными значениями.
+# Android Studio сама допишет сюда sdk.dir при первом открытии проекта.
+
+gateway.baseUrl=https://arm-driver.profstroy-services.ru/
+gateway.mobileToken=REPLACE_ME

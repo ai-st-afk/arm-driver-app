@@ -1,0 +1,6 @@
+.git
+.env
+data
+backend/gateway/data
+tools/python/__pycache__
+**/*.pyc

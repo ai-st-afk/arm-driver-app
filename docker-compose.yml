@@ -1,0 +1,28 @@
+services:
+  gateway:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HTTP_PORT: "8080"
+      DATA_DIR: "/app/data"
+    networks:
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.arm-driver-gateway.rule=Host(`${ARM_DRIVER_DOMAIN}`)
+      - traefik.http.routers.arm-driver-gateway.entrypoints=websecure
+      - traefik.http.routers.arm-driver-gateway.tls.certresolver=le
+      - traefik.http.services.arm-driver-gateway.loadbalancer.server.port=8080
+    volumes:
+      # Технический delivery-cache: FCM-токены устройств и последние XML
+      # разнарядок для выдачи мобильному приложению после push.
+      - arm_driver_gateway_data:/app/data
+
+networks:
+  edge:
+    external: true
+
+volumes:
+  arm_driver_gateway_data:

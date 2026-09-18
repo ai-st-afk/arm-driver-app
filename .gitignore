@@ -1,0 +1,17 @@
+.env
+data/
+backend/gateway/data/
+__pycache__/
+*.pyc
+.idea/
+
+# Android
+android/local.properties
+android/**/build/
+android/.gradle/
+android/.idea/
+android/*.iml
+android/app/google-services.json
+android/captures/
+android/.cxx/
+android/local.properties.bak

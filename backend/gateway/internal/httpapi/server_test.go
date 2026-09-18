@@ -1,0 +1,126 @@
+package httpapi
+
+import (
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"arm-driver-app/backend/gateway/internal/config"
+	"arm-driver-app/backend/gateway/internal/push"
+	"arm-driver-app/backend/gateway/internal/storage"
+)
+
+func TestMobileEventsJSONForwardedToOneCXML(t *testing.T) {
+	var forwarded string
+	oneC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read forwarded body: %v", err)
+		}
+		forwarded = string(raw)
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Результат статус="ok"><Событие ид="8f3a1c2e-4b7d-4a91-9c11-2f5e6d0a7b31" принято="true"/></Результат>`))
+	}))
+	defer oneC.Close()
+
+	api := newTestServer(t, config.Config{
+		GatewayToken:  "one-c-token",
+		MobileToken:   "mobile-token",
+		OneCBaseURL:   oneC.URL,
+		OneCEventsURL: oneC.URL + "/prtr_driver/events",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/mobile/events", strings.NewReader(`{
+		"events": [{
+			"id": "8f3a1c2e-4b7d-4a91-9c11-2f5e6d0a7b31",
+			"type": "ПрибылНаПогрузку",
+			"driver_id": "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162",
+			"assignment_id": "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f",
+			"trip_id": "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b",
+			"time": "2026-09-10T07:34:12+03:00"
+		}]
+	}`))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("X-Auth-Token", "mobile-token")
+	rec := httptest.NewRecorder()
+
+	api.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(forwarded, "<Тип>ПрибылНаПогрузку</Тип>") {
+		t.Fatalf("forwarded XML does not contain event type: %s", forwarded)
+	}
+	if !strings.Contains(rec.Body.String(), `"accepted":true`) {
+		t.Fatalf("mobile response does not contain accepted=true: %s", rec.Body.String())
+	}
+}
+
+func TestAssignmentXMLStoredAndReturnedAsMobileJSON(t *testing.T) {
+	api := newTestServer(t, config.Config{
+		GatewayToken: "one-c-token",
+		MobileToken:  "mobile-token",
+	})
+	assignment := `<?xml version="1.0" encoding="UTF-8"?>
+<Разнарядка>
+  <Идентификатор>b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f</Идентификатор>
+  <Версия>3</Версия>
+  <Номер>ПрТр-000412</Номер>
+  <ДатаВыезда>2026-09-10</ДатаВыезда>
+  <Статус>Активна</Статус>
+  <Водитель><Идентификатор>3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162</Идентификатор><ФИО>Иванов Иван Иванович</ФИО></Водитель>
+  <Машина><Идентификатор>7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d</Идентификатор><Наименование>КАМАЗ 65115</Наименование><ГосНомер>А123ВС43</ГосНомер></Машина>
+  <ПланВыезда>2026-09-10T07:00:00+03:00</ПланВыезда>
+  <ПланВозврата>2026-09-10T17:30:00+03:00</ПланВозврата>
+  <Ездки><Ездка>
+    <Идентификатор>e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b</Идентификатор>
+    <Порядок>1</Порядок>
+    <Статус>Назначена</Статус>
+    <ПунктПогрузки><Наименование>Завод ЖБИ</Наименование><Адрес>Киров</Адрес></ПунктПогрузки>
+    <ПунктРазгрузки><Наименование>Объект</Наименование><Адрес>Окуни</Адрес></ПунктРазгрузки>
+    <ПланПогрузки>2026-09-10T07:30:00+03:00</ПланПогрузки>
+    <ПланРазгрузки>2026-09-10T09:00:00+03:00</ПланРазгрузки>
+  </Ездка></Ездки>
+</Разнарядка>`
+
+	post := httptest.NewRequest(http.MethodPost, "/api/1c/assignments", strings.NewReader(assignment))
+	post.Header.Set("Content-Type", "application/xml; charset=utf-8")
+	post.Header.Set("X-Auth-Token", "one-c-token")
+	postRec := httptest.NewRecorder()
+	api.Routes().ServeHTTP(postRec, post)
+	if postRec.Code != http.StatusOK {
+		t.Fatalf("assignment post status = %d, body = %s", postRec.Code, postRec.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/mobile/assignments/current?driver_id=3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162", nil)
+	get.Header.Set("X-Auth-Token", "mobile-token")
+	getRec := httptest.NewRecorder()
+	api.Routes().ServeHTTP(getRec, get)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("assignment get status = %d, body = %s", getRec.Code, getRec.Body.String())
+	}
+	if !strings.Contains(getRec.Body.String(), `"number":"ПрТр-000412"`) {
+		t.Fatalf("mobile JSON does not contain assignment number: %s", getRec.Body.String())
+	}
+	if !strings.Contains(getRec.Body.String(), `"address":"Окуни"`) {
+		t.Fatalf("mobile JSON does not contain short address: %s", getRec.Body.String())
+	}
+}
+
+func newTestServer(t *testing.T, cfg config.Config) *Server {
+	t.Helper()
+	cfg.DataDir = t.TempDir()
+	if cfg.OneCEventsURL == "" && cfg.OneCBaseURL != "" {
+		cfg.OneCEventsURL = cfg.OneCBaseURL + "/prtr_driver/events"
+	}
+	store, err := storage.New(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("storage init: %v", err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return NewServer(cfg, logger, http.DefaultClient, store, push.NewLogSender(logger, store))
+}
