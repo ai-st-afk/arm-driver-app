@@ -11,6 +11,88 @@
 
 ## [2026-09-18] — Claude
 
+Stage 2 плана (сеть, DTO, ручной ввод `driver_id`) реализован и собран
+локально:
+
+- DTO (`data/network/Dto.kt`) зеркалят JSON-поля из
+  `backend/gateway/internal/httpapi/models.go` 1:1 через `@SerialName`
+  (snake_case ключи как в контракте, идиоматичные camelCase-свойства
+  в Kotlin).
+- `GatewayApi` (Retrofit) — три метода под контракт из
+  `docs/backend-api.md`: `getCurrentAssignment`, `registerDevice`,
+  `sendEvents`.
+- `NetworkModule` (Hilt) — OkHttp с интерсептором `X-Auth-Token` из
+  `BuildConfig.GATEWAY_MOBILE_TOKEN`, логирование тела запросов в debug,
+  Retrofit на kotlinx.serialization-конвертере.
+- `DriverSettingsRepository` (DataStore) — временное хранилище
+  `driver_id` (ручной ввод, решение по автообнаружению всё ещё
+  отложено) и `device_id` (генерируется один раз при первом запуске,
+  понадобится в Stage 4 для регистрации FCM-токена).
+- `SetupScreen`/`SetupViewModel` — временный экран: ввод GUID водителя,
+  кнопка «Сохранить и запросить разнарядку», реальный вызов
+  `GET /api/mobile/assignments/current`, сырой JSON-ответ показывается
+  на экране. `MainActivity` теперь открывает этот экран вместо
+  плейсхолдера Stage 1.
+
+Технические находки:
+
+- **Баг в `.gitignore`:** правило `data/` без слэша матчило вообще любую
+  папку `data` в дереве, включая новый Kotlin-пакет
+  `android/.../data/network` — тот тихо не индексировался git. Было
+  задумано только для `backend/gateway/data/` (рантайм-кэш шлюза),
+  который и так покрыт отдельной строкой. Убрал общее правило.
+- Неверный импорт конвертера: `retrofit2.converter.kotlinx.serialization`
+  не существует, реальный пакет —
+  `com.jakewharton.retrofit2.converter.kotlinx.serialization`. Поймано
+  локальной сборкой, не на телефоне у автора.
+- На машине автора нашлись JBR и Android SDK, поставленные вместе с
+  Android Studio (`~/Library/Java/JavaVirtualMachines/jbr-21.0.11`,
+  `~/Library/Android/sdk`) — теперь могу сам гонять
+  `gradle --offline :app:assembleDebug` и ловить ошибки компиляции до
+  того, как отправлять автору собирать вручную.
+
+Открыто: чтобы проверить реальный сетевой вызов на устройстве, в
+`android/local.properties` до сих пор не добавлен `gateway.mobileToken`
+(там пока только `sdk.dir`, который сама прописала Android Studio) —
+без него `BuildConfig.GATEWAY_MOBILE_TOKEN` пустой и запрос на боевой
+gateway ответит `401`.
+
+## [2026-09-18] — Claude
+
+Репозиторий и Stage 1 Android-каркаса доведены до подтверждённой сборки:
+
+- Инициализирован git в корне проекта (`git init`, identity/credential.helper
+  по образцу соседних проектов — `iiprofstroj` /
+  `iiprofstroj@users.noreply.github.com`, `osxkeychain`). Запушено в новый
+  пустой репозиторий `https://github.com/ai-st-afk/arm-driver-app` (main,
+  root-commit). Добавлен `.idea/` в корневой `.gitignore` — случайно
+  создался при первом открытии Android Studio на корне репо вместо
+  `android/`.
+- Автор поставил Android Studio (Narwhal Feature Drop / Quail 4) и Android
+  SDK с нуля на эту машину — JDK/SDK встроены в дистрибутив IDE, отдельно
+  через brew ставить не пришлось.
+- Первая сборка (`assembleDebug` через Run) упала с
+  `Android resource linking failed` в `ic_launcher_foreground.xml`:
+  использовал SVG-тег `<circle>`, которого нет в схеме Android
+  VectorDrawable (только `<path>`, `<group>`, `<clip-path>`). Исправлено —
+  оба «колеса» иконки переписаны как `<path>` с дуговыми командами
+  (`A5,5 0 1,0 ...`).
+- Создан эмулятор Pixel 8 / API 34 "UpsideDownCake" (Android 14, Google
+  Play) — целевые устройства (realme C71/Note 70, Tecno Spark 40C) не
+  входят в стандартные профили Android Studio, эмулятор всегда гоняет
+  чистый AOSP-образ и не воспроизводит агрессивное убийство фона
+  сторонних прошивок. Решили: сейчас разработка на эмуляторе, после
+  доставки реального телефона (заказан, ещё не пришёл) — проверка
+  фонового поведения и push только на нём.
+- После фикса иконки: `BUILD SUCCESSFUL`, приложение установлено и
+  запущено на эмуляторе, виден плейсхолдер-экран «АРМ водителя».
+  Stage 1 плана (`~/.claude/plans/functional-seeking-canyon.md`) закрыт.
+
+Открыто по-прежнему: `driver_id` при первом запуске (решение отложено
+автором) и Firebase-проект для FCM (ещё не создан).
+
+## [2026-09-18] — Claude
+
 Деплой на `srv-ai` доведён до рабочего состояния и подтверждён боевыми данными:
 
 - Настроен SSH-доступ по ключу (`~/.ssh/id_ed25519_arm_driver`) вместо пароля.
