@@ -8,8 +8,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
-import ru.profstroyservices.armdriver.data.network.AssignmentDto
 import ru.profstroyservices.armdriver.data.network.GatewayApi
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import javax.inject.Inject
@@ -17,7 +15,7 @@ import javax.inject.Inject
 sealed interface AssignmentLoadState {
     data object Idle : AssignmentLoadState
     data object Loading : AssignmentLoadState
-    data class Success(val raw: String) : AssignmentLoadState
+    data object Success : AssignmentLoadState
     data class Error(val message: String) : AssignmentLoadState
 }
 
@@ -32,8 +30,6 @@ class SetupViewModel @Inject constructor(
     private val api: GatewayApi,
     private val settings: DriverSettingsRepository
 ) : ViewModel() {
-
-    private val prettyJson = Json { prettyPrint = true }
 
     private val _uiState = MutableStateFlow(SetupUiState())
     val uiState: StateFlow<SetupUiState> = _uiState.asStateFlow()
@@ -52,6 +48,8 @@ class SetupViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(driverIdInput = value)
     }
 
+    // Просто проверка, что GUID валиден и разнарядка реально приходит —
+    // сам её вид показывает AssignmentScreen, тут это не нужно дублировать.
     fun onSaveAndCheck() {
         val driverId = _uiState.value.driverIdInput.trim()
         if (driverId.isEmpty()) return
@@ -61,9 +59,8 @@ class SetupViewModel @Inject constructor(
             settings.setDriverId(driverId)
             _uiState.value = _uiState.value.copy(savedDriverId = driverId)
             runCatching { api.getCurrentAssignment(driverId) }
-                .onSuccess { assignment: AssignmentDto ->
-                    val raw = prettyJson.encodeToString(AssignmentDto.serializer(), assignment)
-                    _uiState.value = _uiState.value.copy(loadState = AssignmentLoadState.Success(raw))
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(loadState = AssignmentLoadState.Success)
                 }
                 .onFailure { error ->
                     _uiState.value = _uiState.value.copy(
