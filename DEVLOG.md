@@ -11,6 +11,31 @@
 
 ## [2026-09-18] — Claude
 
+Stage 3 плана (Room: кэш разнарядки и очередь событий) реализован и
+проверен реальным прогоном тестов на эмуляторе:
+
+- `PendingEventEntity` — локальная очередь (id, type, driverId,
+  assignmentId, tripId, time, comment, sent-флаг), как и описано в
+  плане. Строка живёт до подтверждения `accepted: true` от 1С —
+  удаление поштучное (`deleteById`), не всей пачкой.
+- `CachedAssignmentEntity` — последняя разнарядка водителя, хранится как
+  сериализованный JSON (`assignmentJson`) под ключом `driverId`, а не
+  разложенная по колонкам структура: gateway уже сделал валидацию и
+  проекцию из XML, второй раз эту работу здесь не переделываем.
+- `Mappers.kt` — DTO ↔ Entity в обе стороны (`EventRequest`/
+  `PendingEventEntity`, `AssignmentDto`/`CachedAssignmentEntity`).
+- `DatabaseModule` (Hilt) — синглтон `AppDatabase`, DAO через `@Provides`.
+- Инструментальный smoke-тест (`AppDatabaseTest`, androidTest, in-memory
+  Room) прогнан на реальном эмуляторе через
+  `gradle :app:connectedDebugAndroidTest` — `2 tests`, `BUILD SUCCESSFUL`.
+  Добавлены тестовые зависимости (junit, androidx.test, kotlinx-coroutines-test)
+  и `testInstrumentationRunner`.
+
+Открыто: очередь пока не подключена к UI (это Stage 5/6) — на этом этапе
+только хранилище и его проверка.
+
+## [2026-09-18] — Claude
+
 Stage 2 плана (сеть, DTO, ручной ввод `driver_id`) реализован и собран
 локально:
 

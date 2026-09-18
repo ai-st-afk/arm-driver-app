@@ -1,0 +1,75 @@
+package ru.profstroyservices.armdriver.data.db
+
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import ru.profstroyservices.armdriver.data.network.AssignmentDto
+import ru.profstroyservices.armdriver.data.network.PersonDto
+import ru.profstroyservices.armdriver.data.network.VehicleDto
+
+@RunWith(AndroidJUnit4::class)
+class AppDatabaseTest {
+
+    private lateinit var db: AppDatabase
+
+    @Before
+    fun createDb() {
+        db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+    }
+
+    @After
+    fun closeDb() {
+        db.close()
+    }
+
+    @Test
+    fun insertAndReadPendingEvent() = runBlocking {
+        val event = PendingEventEntity(
+            id = "e7c8ff40-fbda-4eae-ade0-30dceb4624b1",
+            type = "Ознакомление",
+            driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee",
+            assignmentId = "e28a5167-b292-11f1-9835-d85ed35a8f26",
+            tripId = null,
+            time = "2026-09-13T19:00:00+03:00",
+            comment = ""
+        )
+
+        db.pendingEventDao().insert(event)
+        val unsent = db.pendingEventDao().getUnsent()
+
+        assertEquals(1, unsent.size)
+        assertEquals(event, unsent.first())
+
+        db.pendingEventDao().deleteById(event.id)
+        assertEquals(0, db.pendingEventDao().getUnsent().size)
+    }
+
+    @Test
+    fun cacheAndReadAssignment() = runBlocking {
+        val driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee"
+        val assignment = AssignmentDto(
+            id = "e28a5167-b292-11f1-9835-d85ed35a8f26",
+            version = 1,
+            number = "00000000004",
+            departureDay = "2026-09-14",
+            status = "Активна",
+            driver = PersonDto(id = driverId, name = "Комиссаров Михаил Владимирович"),
+            vehicle = VehicleDto(id = "63a3259d-cc83-11ed-97ef-d85ed35a8f26", plate = "У005РФ43")
+        )
+
+        db.cachedAssignmentDao().upsert(assignment.toEntity(driverId, updatedAt = 1L))
+        val cached = db.cachedAssignmentDao().getForDriver(driverId)
+
+        assertEquals(assignment, cached?.toAssignmentDto())
+        assertNull(db.cachedAssignmentDao().getForDriver("unknown-driver"))
+    }
+}
