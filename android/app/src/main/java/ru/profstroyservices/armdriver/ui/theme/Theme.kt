@@ -59,12 +59,12 @@ private val DarkColors = darkColorScheme(
 // плотный текст для настольного использования.
 private val AppTypography = Typography().let { base ->
     base.copy(
-        headlineSmall = base.headlineSmall.copy(fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.SemiBold),
-        titleMedium = base.titleMedium.copy(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold),
-        bodyLarge = base.bodyLarge.copy(fontSize = 22.sp, lineHeight = 28.sp),
-        bodyMedium = base.bodyMedium.copy(fontSize = 20.sp, lineHeight = 26.sp),
-        bodySmall = base.bodySmall.copy(fontSize = 16.sp, lineHeight = 22.sp, color = TextMuted),
-        labelLarge = base.labelLarge.copy(fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
+        headlineSmall = base.headlineSmall.copy(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold),
+        titleMedium = base.titleMedium.copy(fontSize = 21.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
+        bodyLarge = base.bodyLarge.copy(fontSize = 19.sp, lineHeight = 24.sp),
+        bodyMedium = base.bodyMedium.copy(fontSize = 17.sp, lineHeight = 22.sp),
+        bodySmall = base.bodySmall.copy(fontSize = 14.sp, lineHeight = 19.sp, color = TextMuted),
+        labelLarge = base.labelLarge.copy(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
     )
 }
 
