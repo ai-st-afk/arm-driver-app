@@ -48,6 +48,8 @@ func main() {
 	}
 	api := httpapi.NewServer(cfg, logger, httpClient, store, pushSender)
 
+	go runDocumentCleanup(logger, store, cfg)
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
 		Handler:           api.Routes(),
@@ -74,5 +76,23 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "error", err)
+	}
+}
+
+// runDocumentCleanup раз в сутки удаляет фото документов старше срока
+// хранения (см. config.Config.DocumentPendingRetentionDays/DeliveredRetentionDays).
+// Запускается сразу при старте, чтобы не ждать сутки после деплоя.
+func runDocumentCleanup(logger *slog.Logger, store *storage.Store, cfg config.Config) {
+	pendingTTL := time.Duration(cfg.DocumentPendingRetentionDays) * 24 * time.Hour
+	deliveredTTL := time.Duration(cfg.DocumentDeliveredRetentionDays) * 24 * time.Hour
+
+	for {
+		deleted, err := store.CleanupOldDocuments(time.Now(), pendingTTL, deliveredTTL)
+		if err != nil {
+			logger.Error("document cleanup failed", "error", err)
+		} else if deleted > 0 {
+			logger.Info("document cleanup", "deleted", deleted)
+		}
+		time.Sleep(24 * time.Hour)
 	}
 }

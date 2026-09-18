@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ import (
 )
 
 const maxXMLBody = 4 << 20
+const maxDocumentBody = 12 << 20
 
 type Server struct {
 	cfg    config.Config
@@ -47,6 +49,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/mobile/assignments/{id}/xml", s.assignmentByIDXML)
 	mux.HandleFunc("GET /api/mobile/assignments/{id}", s.assignmentByID)
 	mux.HandleFunc("POST /api/mobile/events", s.receiveEvents)
+	mux.HandleFunc("POST /api/mobile/documents", s.uploadDocument)
 	return s.recover(s.requestLog(mux))
 }
 
@@ -291,6 +294,62 @@ func (s *Server) receiveEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, statusCode, resultXMLToJSON(result))
+}
+
+// uploadDocument принимает фото подписанного документа с разгрузки.
+// В 1С пока не пересылается — контракт события `<Событие>` не рассчитан
+// на вложения, а менять его в одностороннем порядке нельзя (AGENTS.md).
+// Фото лежит в техническом delivery-cache до момента, когда появится
+// согласованный с 1С-командой способ доставки; см. CleanupOldDocuments
+// про срок хранения.
+func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizedMobile(r) {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "неверный X-Auth-Token")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxDocumentBody)
+	if err := r.ParseMultipartForm(maxDocumentBody); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "bad_request", "не удалось прочитать multipart-запрос: "+err.Error())
+		return
+	}
+
+	driverID := r.FormValue("driver_id")
+	assignmentID := r.FormValue("assignment_id")
+	tripID := r.FormValue("trip_id")
+	if driverID == "" || tripID == "" {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "обязательны driver_id и trip_id")
+		return
+	}
+
+	file, header, err := r.FormFile("photo")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "обязателен файл photo")
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxDocumentBody))
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "bad_request", "не удалось прочитать файл")
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+		writeJSONError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "ожидается фото JPEG или PNG")
+		return
+	}
+
+	meta, err := s.store.SaveDocument(tripID, driverID, assignmentID, ext, data)
+	if err != nil {
+		s.logger.ErrorContext(r.Context(), "document save failed", "error", err, "trip", tripID)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось сохранить фото")
+		return
+	}
+
+	s.logger.InfoContext(r.Context(), "document accepted", "id", meta.ID, "trip", tripID, "driver", driverID, "bytes", len(data))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "id": meta.ID})
 }
 
 func (s *Server) forwardToOneC(ctx context.Context, body []byte) ([]byte, int, error) {

@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,8 +37,27 @@ type indexFile struct {
 	LatestByDriver map[string]string         `json:"latest_by_driver"`
 }
 
+// DocumentMeta — фото подписанного документа с разгрузки. Это тоже
+// technical delivery-cache, не источник истины: как только фото уедет
+// в 1С (когда их команда даст формат приёма), DeliveredAt проставится
+// и файл проживёт ещё недолго (см. CleanupOldDocuments) — до этого
+// момента 1С своей копии не имеет, поэтому храним дольше.
+type DocumentMeta struct {
+	ID           string     `json:"id"`
+	TripID       string     `json:"trip_id"`
+	DriverID     string     `json:"driver_id"`
+	AssignmentID string     `json:"assignment_id"`
+	ContentPath  string     `json:"content_path"`
+	ReceivedAt   time.Time  `json:"received_at"`
+	DeliveredAt  *time.Time `json:"delivered_at,omitempty"`
+}
+
+type documentsIndexFile struct {
+	Documents map[string]DocumentMeta `json:"documents"`
+}
+
 func New(dir string) (*Store, error) {
-	for _, subdir := range []string{dir, filepath.Join(dir, "assignments")} {
+	for _, subdir := range []string{dir, filepath.Join(dir, "assignments"), filepath.Join(dir, "documents")} {
 		if err := os.MkdirAll(subdir, 0o755); err != nil {
 			return nil, err
 		}
@@ -49,6 +70,11 @@ func New(dir string) (*Store, error) {
 		return nil, err
 	}
 	if err := store.ensureJSON("devices.json", map[string]Device{}); err != nil {
+		return nil, err
+	}
+	if err := store.ensureJSON("documents.json", documentsIndexFile{
+		Documents: map[string]DocumentMeta{},
+	}); err != nil {
 		return nil, err
 	}
 	return store, nil
@@ -163,6 +189,87 @@ func (s *Store) GetDevice(driverID string) (Device, error) {
 	return device, nil
 }
 
+// SaveDocument сохраняет фото документа на диск и возвращает его метаданные.
+// ext — расширение с точкой (например ".jpg"), пришедшее от телефона.
+func (s *Store) SaveDocument(tripID, driverID, assignmentID, ext string, data []byte) (DocumentMeta, error) {
+	if tripID == "" {
+		return DocumentMeta{}, errors.New("пустой идентификатор ездки")
+	}
+	if driverID == "" {
+		return DocumentMeta{}, errors.New("пустой водитель")
+	}
+	if len(data) == 0 {
+		return DocumentMeta{}, errors.New("пустой файл")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadDocuments()
+	if err != nil {
+		return DocumentMeta{}, err
+	}
+
+	id, err := newID()
+	if err != nil {
+		return DocumentMeta{}, err
+	}
+	contentPath := filepath.Join("documents", id+ext)
+	if err := os.WriteFile(filepath.Join(s.dir, contentPath), data, 0o644); err != nil {
+		return DocumentMeta{}, err
+	}
+
+	meta := DocumentMeta{
+		ID:           id,
+		TripID:       tripID,
+		DriverID:     driverID,
+		AssignmentID: assignmentID,
+		ContentPath:  contentPath,
+		ReceivedAt:   time.Now().UTC(),
+	}
+	idx.Documents[id] = meta
+	if err := s.saveDocuments(idx); err != nil {
+		return DocumentMeta{}, err
+	}
+	return meta, nil
+}
+
+// CleanupOldDocuments удаляет фото старше срока хранения: pendingTTL — для
+// тех, что ещё не подтверждены доставленными в 1С (DeliveredAt пуст, на
+// сегодня это все — доставка в 1С ещё не реализована), deliveredTTL — для
+// уже подтверждённых. Возвращает количество удалённых файлов.
+func (s *Store) CleanupOldDocuments(now time.Time, pendingTTL, deliveredTTL time.Duration) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadDocuments()
+	if err != nil {
+		return 0, err
+	}
+
+	deleted := 0
+	for id, meta := range idx.Documents {
+		var expired bool
+		if meta.DeliveredAt != nil {
+			expired = now.Sub(*meta.DeliveredAt) > deliveredTTL
+		} else {
+			expired = now.Sub(meta.ReceivedAt) > pendingTTL
+		}
+		if !expired {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.dir, meta.ContentPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return deleted, err
+		}
+		delete(idx.Documents, id)
+		deleted++
+	}
+	if deleted == 0 {
+		return 0, nil
+	}
+	return deleted, s.saveDocuments(idx)
+}
+
 var ErrNotFound = errors.New("not found")
 
 func (s *Store) ensureJSON(name string, value any) error {
@@ -203,6 +310,29 @@ func (s *Store) loadDevices() (map[string]Device, error) {
 
 func (s *Store) saveDevices(devices map[string]Device) error {
 	return writeJSON(filepath.Join(s.dir, "devices.json"), devices)
+}
+
+func (s *Store) loadDocuments() (documentsIndexFile, error) {
+	var idx documentsIndexFile
+	if err := readJSON(filepath.Join(s.dir, "documents.json"), &idx); err != nil {
+		return documentsIndexFile{}, err
+	}
+	if idx.Documents == nil {
+		idx.Documents = map[string]DocumentMeta{}
+	}
+	return idx, nil
+}
+
+func (s *Store) saveDocuments(idx documentsIndexFile) error {
+	return writeJSON(filepath.Join(s.dir, "documents.json"), idx)
+}
+
+func newID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw[:]), nil
 }
 
 func readJSON(path string, dst any) error {

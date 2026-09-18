@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -108,6 +110,74 @@ func TestAssignmentXMLStoredAndReturnedAsMobileJSON(t *testing.T) {
 	}
 	if !strings.Contains(getRec.Body.String(), `"address":"Окуни"`) {
 		t.Fatalf("mobile JSON does not contain short address: %s", getRec.Body.String())
+	}
+}
+
+func TestDocumentUploadStored(t *testing.T) {
+	api := newTestServer(t, config.Config{MobileToken: "mobile-token"})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("driver_id", "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162"); err != nil {
+		t.Fatalf("write driver_id field: %v", err)
+	}
+	if err := writer.WriteField("assignment_id", "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f"); err != nil {
+		t.Fatalf("write assignment_id field: %v", err)
+	}
+	if err := writer.WriteField("trip_id", "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b"); err != nil {
+		t.Fatalf("write trip_id field: %v", err)
+	}
+	part, err := writer.CreateFormFile("photo", "накладная.jpg")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write([]byte("fake-jpeg-bytes")); err != nil {
+		t.Fatalf("write photo bytes: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mobile/documents", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Auth-Token", "mobile-token")
+	rec := httptest.NewRecorder()
+
+	api.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("response does not contain status ok: %s", rec.Body.String())
+	}
+}
+
+func TestDocumentUploadRejectsUnsupportedType(t *testing.T) {
+	api := newTestServer(t, config.Config{MobileToken: "mobile-token"})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("driver_id", "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162")
+	_ = writer.WriteField("trip_id", "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b")
+	part, err := writer.CreateFormFile("photo", "doc.pdf")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	_, _ = part.Write([]byte("%PDF-1.4"))
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mobile/documents", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Auth-Token", "mobile-token")
+	rec := httptest.NewRecorder()
+
+	api.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
 
