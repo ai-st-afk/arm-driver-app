@@ -10,6 +10,7 @@ import dagger.hilt.components.SingletonComponent
 import ru.profstroyservices.armdriver.data.db.AppDatabase
 import ru.profstroyservices.armdriver.data.db.CachedAssignmentDao
 import ru.profstroyservices.armdriver.data.db.PendingEventDao
+import ru.profstroyservices.armdriver.data.db.PendingPhotoDao
 import javax.inject.Singleton
 
 @Module
@@ -19,11 +20,18 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "arm-driver.db").build()
+        Room.databaseBuilder(context, AppDatabase::class.java, "arm-driver.db")
+            // Приложение ещё не в проде — реальных миграций пока нет,
+            // при смене схемы во время разработки проще пересоздать базу.
+            .fallbackToDestructiveMigration()
+            .build()
 
     @Provides
     fun providePendingEventDao(db: AppDatabase): PendingEventDao = db.pendingEventDao()
 
     @Provides
     fun provideCachedAssignmentDao(db: AppDatabase): CachedAssignmentDao = db.cachedAssignmentDao()
+
+    @Provides
+    fun providePendingPhotoDao(db: AppDatabase): PendingPhotoDao = db.pendingPhotoDao()
 }

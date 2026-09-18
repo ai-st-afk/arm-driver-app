@@ -1,8 +1,11 @@
 package ru.profstroyservices.armdriver.ui.roadmap
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import ru.profstroyservices.armdriver.data.network.TripDto
 import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.ui.components.LabeledField
+import java.io.File
 
 private val ButtonHeight = 56.dp
 private val CompletedGreen = Color(0xFF2E7D32)
@@ -42,16 +46,33 @@ private val actionLabels = mapOf(
     EventTypes.PRIBYL_NA_POGRUZKU to "Прибыл на погрузку",
     EventTypes.ZAGRUZILSYA_V_PUT to "Загрузился, в пути",
     EventTypes.PRIBYL_NA_RAZGRUZKU to "Прибыл на разгрузку",
-    EventTypes.RAZGRUZILSYA to "Разгрузился"
+    EventTypes.RAZGRUZILSYA to "Разгрузился (фото документа)"
 )
 
 @Composable
 fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
+    val unsentCount by viewModel.unsentCount.collectAsState()
     var sryvTarget by remember { mutableStateOf<TripDto?>(null) }
+
+    // Камера пишет фото в файл, подготовленный заранее (prepareCapture) —
+    // это гарантирует "только с камеры", не из галереи: TakePicture ничего
+    // не выбирает, только снимает и сохраняет по готовому Uri.
+    var captureTarget by remember { mutableStateOf<Pair<TripDto, File>?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val target = captureTarget
+        captureTarget = null
+        if (success && target != null) {
+            viewModel.onPhotoCaptured(target.first, target.second)
+        }
+    }
 
     Scaffold { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            if (unsentCount > 0) {
+                UnsentBanner(count = unsentCount, onRetry = viewModel::onRetry)
+            }
+
             when (val state = uiState) {
                 is RoadmapUiState.Loading -> Column(
                     modifier = Modifier.fillMaxSize(),
@@ -73,7 +94,15 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
                         items(state.trips) { tripState ->
                             TripCard(
                                 state = tripState,
-                                onAction = { type -> viewModel.onTripAction(tripState.trip, type) },
+                                onAction = { type ->
+                                    if (type == EventTypes.RAZGRUZILSYA) {
+                                        val (file, uri) = viewModel.prepareCapture()
+                                        captureTarget = tripState.trip to file
+                                        cameraLauncher.launch(uri)
+                                    } else {
+                                        viewModel.onTripAction(tripState.trip, type)
+                                    }
+                                },
                                 onSryv = { sryvTarget = tripState.trip }
                             )
                         }
@@ -102,6 +131,26 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
             },
             onDismiss = { sryvTarget = null }
         )
+    }
+}
+
+@Composable
+private fun UnsentBanner(count: Int, onRetry: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Не отправлено: $count",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error
+        )
+        OutlinedButton(onClick = onRetry) {
+            Text("Повторить")
+        }
     }
 }
 

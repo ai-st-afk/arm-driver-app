@@ -21,6 +21,14 @@ interface PendingEventDao {
     @Query("DELETE FROM pending_events WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    // Не удаляем принятые события: doneTypes/acknowledged/shiftStarted
+    // читают эту же таблицу целиком (см. observeForAssignment), чтобы
+    // понять, что действие уже случилось. Удаление тут же "забыло" бы
+    // прогресс и открыло кнопку заново — повторное нажатие родило бы
+    // новый GUID для уже отправленного события.
+    @Query("UPDATE pending_events SET sent = 1 WHERE id = :id")
+    suspend fun markSent(id: String)
+
     @Query("SELECT COUNT(*) FROM pending_events WHERE sent = 0")
     fun observeUnsentCount(): Flow<Int>
 

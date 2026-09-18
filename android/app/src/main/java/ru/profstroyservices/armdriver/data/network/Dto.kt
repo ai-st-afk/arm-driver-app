@@ -117,3 +117,9 @@ data class ErrorResponse(
     val error: String,
     val code: String? = null
 )
+
+@Serializable
+data class DocumentUploadResponse(
+    val status: String,
+    val id: String? = null
+)

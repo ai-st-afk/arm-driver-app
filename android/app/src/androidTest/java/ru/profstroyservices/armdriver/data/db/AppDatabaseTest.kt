@@ -3,6 +3,7 @@ package ru.profstroyservices.armdriver.data.db
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -51,6 +52,30 @@ class AppDatabaseTest {
 
         db.pendingEventDao().deleteById(event.id)
         assertEquals(0, db.pendingEventDao().getUnsent().size)
+    }
+
+    @Test
+    fun markSentKeepsRowButHidesFromUnsent() = runBlocking {
+        val event = PendingEventEntity(
+            id = "e7c8ff40-fbda-4eae-ade0-30dceb4624b1",
+            type = "Ознакомление",
+            driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee",
+            assignmentId = "e28a5167-b292-11f1-9835-d85ed35a8f26",
+            tripId = null,
+            time = "2026-09-13T19:00:00+03:00",
+            comment = ""
+        )
+        val dao = db.pendingEventDao()
+        dao.insert(event)
+
+        dao.markSent(event.id)
+
+        // Ушло из "неотправленных" (бейдж/повтор), но не исчезло совсем —
+        // прогресс на экране (acknowledged/doneTypes) читает именно
+        // observeForAssignment, а не getUnsent.
+        assertEquals(0, dao.getUnsent().size)
+        assertEquals(1, dao.observeForAssignment(event.assignmentId).first().size)
+        assertEquals(true, dao.exists(event.assignmentId, event.type, event.tripId))
     }
 
     @Test
