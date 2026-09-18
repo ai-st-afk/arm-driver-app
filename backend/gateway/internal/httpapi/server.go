@@ -335,6 +335,11 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(data) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "пустой файл photo")
+		return
+	}
+
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
 		writeJSONError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "ожидается фото JPEG или PNG")
