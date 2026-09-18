@@ -3,13 +3,14 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M24,60 L24,44 C24,40 27,37 31,37 L61,37 C63,37 65,38 66,40 L75,54 C77,54 79,56 79,58 L79,68 C79,70 77,72 75,72 L71,72 C71,76 67,80 63,80 C59,80 55,76 55,72 L44,72 C44,76 40,80 36,80 C32,80 28,76 28,72 L24,72 C24,72 24,64 24,60 Z M31,44 L31,60 L58,60 L58,44 Z M63,54 L70,54 L64,45 L63,45 Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M31,72 A5,5 0 1,0 41,72 A5,5 0 1,0 31,72 Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M58,72 A5,5 0 1,0 68,72 A5,5 0 1,0 58,72 Z" />
+    <!-- Фирменный ромб-логотип студии (realty-unitflow/assets/brand/logo.svg),
+         масштабирован и отцентрован под safe zone адаптивной иконки (~66dp). -->
+    <group android:scaleX="0.0264" android:scaleY="0.0264" android:translateX="21" android:translateY="34.2">
+        <path android:fillColor="#afc925" android:pathData="M1256.03,413.52 L1247.68,1070.42 L674.49,750.27 Z" />
+        <path android:fillColor="#76b635" android:pathData="M674.38,88.72 L1256.04,413.49 L674.38,750.24 L92.09,425.22 Z" />
+        <path android:fillColor="#009644" android:pathData="M674.61,750.1 L674.43,1411.28 L92.09,1086.25 L92.1,425.25 Z" />
+        <path android:fillColor="#e75325" android:pathData="M1853.6,1401.81 L2439.44,1067.32 L1855.09,741.18 Z" />
+        <path android:fillColor="#f0801b" android:pathData="M1274.93,1078.68 L1853.58,1401.82 L1856.53,742.01 L1275.01,417.11 Z" />
+        <path android:fillColor="#fce926" android:pathData="M1857.43,742.5 L2426.55,413.92 L1844.04,88.72 L1275.04,417.1 Z" />
+    </group>
 </vector>

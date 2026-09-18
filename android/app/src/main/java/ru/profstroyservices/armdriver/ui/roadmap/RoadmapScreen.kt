@@ -1,15 +1,19 @@
 package ru.profstroyservices.armdriver.ui.roadmap
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -24,10 +28,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ru.profstroyservices.armdriver.data.network.TripDto
 import ru.profstroyservices.armdriver.data.repository.EventTypes
+
+private val ButtonHeight = 56.dp
+private val CompletedGreen = Color(0xFF2E7D32)
 
 private val actionLabels = mapOf(
     EventTypes.PRIBYL_NA_POGRUZKU to "Прибыл на погрузку",
@@ -53,13 +61,13 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
                 is RoadmapUiState.Error -> Text(
                     text = state.message,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(16.dp)
+                    modifier = Modifier.padding(20.dp)
                 )
 
                 is RoadmapUiState.Content -> Column(modifier = Modifier.fillMaxSize()) {
                     LazyColumn(
-                        modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.weight(1f).padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         items(state.trips) { tripState ->
                             TripCard(
@@ -73,9 +81,12 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
                     Button(
                         onClick = viewModel::onEndShift,
                         enabled = !state.shiftEnded,
-                        modifier = Modifier.fillMaxWidth().padding(16.dp)
+                        modifier = Modifier.padding(20.dp).fillMaxWidth().height(ButtonHeight)
                     ) {
-                        Text(if (state.shiftEnded) "Смена закончена" else "Закончить смену")
+                        Text(
+                            if (state.shiftEnded) "Смена закончена" else "Закончить смену",
+                            style = MaterialTheme.typography.labelLarge
+                        )
                     }
                 }
             }
@@ -100,30 +111,42 @@ private fun TripCard(
     onSryv: () -> Unit
 ) {
     val trip = state.trip
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(text = "Ездка ${trip.order}", style = MaterialTheme.typography.titleMedium)
             if (state.isCancelled) {
                 Text(text = "снято", color = MaterialTheme.colorScheme.error)
             }
-            Text(text = "Погрузка: ${trip.loadPoint.address ?: trip.loadPoint.name ?: "—"}")
-            Text(text = "Разгрузка: ${trip.unloadPoint.address ?: trip.unloadPoint.name ?: "—"}")
-            trip.trailer.plate?.let { Text(text = "Прицеп: $it") }
-            trip.cargo.composition?.let { Text(text = "Груз: $it") }
+            Text(text = "Погрузка: ${trip.loadPoint.address ?: trip.loadPoint.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+            Text(text = "Разгрузка: ${trip.unloadPoint.address ?: trip.unloadPoint.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+            trip.trailer.plate?.let { Text(text = "Прицеп: $it", style = MaterialTheme.typography.bodyMedium) }
+            trip.cargo.composition?.let { Text(text = "Груз: $it", style = MaterialTheme.typography.bodyMedium) }
 
             if (!state.isCancelled) {
                 if (state.doneTypes.contains(EventTypes.RAZGRUZILSYA)) {
-                    Text(text = "Ездка завершена", color = MaterialTheme.colorScheme.primary)
+                    Text(text = "Ездка завершена", color = CompletedGreen)
                 } else if (state.doneTypes.contains(EventTypes.SRYV)) {
                     Text(text = "Ездка сорвана", color = MaterialTheme.colorScheme.error)
                 } else {
                     state.nextAction?.let { next ->
-                        Button(onClick = { onAction(next) }, modifier = Modifier.fillMaxWidth()) {
-                            Text(actionLabels.getValue(next))
+                        Button(
+                            onClick = { onAction(next) },
+                            modifier = Modifier.fillMaxWidth().height(ButtonHeight),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Text(actionLabels.getValue(next), style = MaterialTheme.typography.labelLarge)
                         }
                     }
-                    OutlinedButton(onClick = onSryv, modifier = Modifier.fillMaxWidth()) {
-                        Text("Ездка сорвана")
+                    OutlinedButton(onClick = onSryv, modifier = Modifier.fillMaxWidth().height(ButtonHeight)) {
+                        Text("Ездка сорвана", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }

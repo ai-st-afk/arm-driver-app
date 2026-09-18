@@ -1,11 +1,16 @@
 package ru.profstroyservices.armdriver.ui.assignment
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -15,9 +20,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import ru.profstroyservices.armdriver.R
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
+
+private val ButtonHeight = 56.dp
 
 @Composable
 fun AssignmentScreen(
@@ -31,9 +40,11 @@ fun AssignmentScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            AppHeader()
+
             when (val state = uiState) {
                 is AssignmentUiState.Loading -> Column(
                     modifier = Modifier.fillMaxSize(),
@@ -60,6 +71,22 @@ fun AssignmentScreen(
 }
 
 @Composable
+private fun AppHeader() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_foreground),
+            contentDescription = null,
+            modifier = Modifier.size(32.dp)
+        )
+        Text(
+            text = "АРМ водителя",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(start = 10.dp)
+        )
+    }
+}
+
+@Composable
 private fun AssignmentContent(
     state: AssignmentUiState.Content,
     onAcknowledge: () -> Unit,
@@ -68,37 +95,46 @@ private fun AssignmentContent(
 ) {
     val assignment: AssignmentDto = state.assignment
 
-    Text(text = "Разнарядка № ${assignment.number ?: assignment.id}", style = MaterialTheme.typography.headlineSmall)
-    Text(text = "Дата выезда: ${assignment.departureDay}", style = MaterialTheme.typography.bodyMedium)
-    Text(
-        text = "Водитель: ${assignment.driver.name ?: assignment.driver.id}",
-        style = MaterialTheme.typography.bodyMedium
-    )
-    Text(
-        text = "Машина: ${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim(),
-        style = MaterialTheme.typography.bodyMedium
-    )
-    Text(text = "Ездок в разнарядке: ${assignment.trips.size}", style = MaterialTheme.typography.bodyMedium)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(text = "Разнарядка № ${assignment.number ?: assignment.id}", style = MaterialTheme.typography.headlineSmall)
+        Text(text = "Дата выезда: ${assignment.departureDay}", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            text = "Водитель: ${assignment.driver.name ?: assignment.driver.id}",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            text = "Машина: ${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim(),
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            text = "Ездок в разнарядке: ${assignment.trips.size}",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
 
     Button(
         onClick = onAcknowledge,
         enabled = !state.acknowledged,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().height(ButtonHeight)
     ) {
-        Text(if (state.acknowledged) "Ознакомлен" else "Ознакомлен?")
+        Text(if (state.acknowledged) "Ознакомлен" else "Ознакомлен?", style = MaterialTheme.typography.labelLarge)
     }
 
     Button(
         onClick = onStartShift,
         enabled = state.acknowledged && !state.shiftStarted,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().height(ButtonHeight),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
     ) {
-        Text("Начать смену")
+        Text("Начать смену", style = MaterialTheme.typography.labelLarge)
     }
 
     if (state.shiftStarted) {
-        Button(onClick = onOpenRoadmap, modifier = Modifier.fillMaxWidth()) {
-            Text("К списку ездок")
+        Button(
+            onClick = onOpenRoadmap,
+            modifier = Modifier.fillMaxWidth().height(ButtonHeight)
+        ) {
+            Text("К списку ездок", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
