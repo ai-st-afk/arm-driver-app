@@ -23,4 +23,16 @@ interface PendingEventDao {
 
     @Query("SELECT COUNT(*) FROM pending_events WHERE sent = 0")
     fun observeUnsentCount(): Flow<Int>
+
+    // Кнопка нажата второй раз (двойной тап, пересоздание экрана) не должна
+    // рождать новый GUID для того же реального события — иначе 1С увидит
+    // это как два разных события уровня/ездки.
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM pending_events " +
+            "WHERE assignmentId = :assignmentId AND type = :type AND tripId IS :tripId)"
+    )
+    suspend fun exists(assignmentId: String, type: String, tripId: String?): Boolean
+
+    @Query("SELECT * FROM pending_events WHERE assignmentId = :assignmentId")
+    fun observeForAssignment(assignmentId: String): Flow<List<PendingEventEntity>>
 }

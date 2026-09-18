@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import dagger.hilt.android.AndroidEntryPoint
-import ru.profstroyservices.armdriver.ui.setup.SetupScreen
+import ru.profstroyservices.armdriver.ui.AppNavHost
 import ru.profstroyservices.armdriver.ui.theme.ArmDriverTheme
 
 @AndroidEntryPoint
@@ -15,7 +15,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ArmDriverTheme {
-                SetupScreen()
+                AppNavHost()
             }
         }
     }

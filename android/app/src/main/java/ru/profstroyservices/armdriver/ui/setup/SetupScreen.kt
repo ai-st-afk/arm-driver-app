@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
-fun SetupScreen(viewModel: SetupViewModel = hiltViewModel()) {
+fun SetupScreen(onContinue: () -> Unit, viewModel: SetupViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
 
     Scaffold { innerPadding ->
@@ -63,6 +63,9 @@ fun SetupScreen(viewModel: SetupViewModel = hiltViewModel()) {
                     text = "Сохранено: $it",
                     style = MaterialTheme.typography.bodySmall
                 )
+                Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
+                    Text("Перейти к разнарядке")
+                }
             }
 
             when (val state = uiState.loadState) {
