@@ -88,6 +88,16 @@ type eventResultXML struct {
 	Error    string `xml:"ошибка,attr,omitempty"`
 }
 
+// photoResultXML — ответ 1С на POST .../hs/prtr_driver/photo, отдельный
+// контракт от событий (одна фотография на запрос, не пачка), см.
+// docs/backend-api.md.
+type photoResultXML struct {
+	XMLName xml.Name `xml:"Результат"`
+	ID      string   `xml:"ид,attr"`
+	Status  string   `xml:"статус,attr"`
+	Error   string   `xml:"ошибка,attr,omitempty"`
+}
+
 type deviceXML struct {
 	XMLName  xml.Name `xml:"Устройство"`
 	DriverID string   `xml:"Водитель"`

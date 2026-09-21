@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime"
@@ -314,11 +315,12 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	photoID := r.FormValue("photo_id")
 	driverID := r.FormValue("driver_id")
 	assignmentID := r.FormValue("assignment_id")
 	tripID := r.FormValue("trip_id")
-	if driverID == "" || tripID == "" {
-		writeJSONError(w, http.StatusBadRequest, "validation_error", "обязательны driver_id и trip_id")
+	if photoID == "" || driverID == "" || tripID == "" {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "обязательны photo_id, driver_id и trip_id")
 		return
 	}
 
@@ -341,20 +343,93 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+	contentType := ""
+	switch ext {
+	case ".jpg", ".jpeg":
+		ext = ".jpg"
+		contentType = "image/jpeg"
+	case ".png":
+		contentType = "image/png"
+	default:
 		writeJSONError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "ожидается фото JPEG или PNG")
 		return
 	}
 
-	meta, err := s.store.SaveDocument(tripID, driverID, assignmentID, ext, data)
+	meta, err := s.store.SaveDocument(photoID, tripID, driverID, assignmentID, ext, data)
 	if err != nil {
 		s.logger.ErrorContext(r.Context(), "document save failed", "error", err, "trip", tripID)
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось сохранить фото")
 		return
 	}
-
 	s.logger.InfoContext(r.Context(), "document accepted", "id", meta.ID, "trip", tripID, "driver", driverID, "bytes", len(data))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "id": meta.ID})
+
+	if s.cfg.OneCBaseURL == "" {
+		writeJSONError(w, http.StatusServiceUnavailable, "one_c_not_configured", "ONE_C_BASE_URL не настроен, фото не отправлено в 1С")
+		return
+	}
+
+	result, err := s.forwardPhotoToOneC(r.Context(), photoID, assignmentID, tripID, contentType, data)
+	if err != nil {
+		s.logger.ErrorContext(r.Context(), "1c photo forwarding failed", "error", err, "id", photoID)
+		writeJSONError(w, http.StatusBadGateway, "one_c_unavailable", "не удалось отправить фото в 1С")
+		return
+	}
+	if !strings.EqualFold(result.Status, "ok") {
+		s.logger.WarnContext(r.Context(), "1c rejected photo", "id", photoID, "error", result.Error)
+		writeJSONError(w, http.StatusBadGateway, "one_c_rejected", result.Error)
+		return
+	}
+
+	if err := s.store.MarkDocumentDelivered(photoID, time.Now().UTC()); err != nil {
+		// Фото уже доехало до 1С — не роняем ответ телефону из-за локальной
+		// пометки, просто логируем: хуже будет держать файл дольше
+		// (pendingTTL вместо deliveredTTL), а не потерять доставку.
+		s.logger.ErrorContext(r.Context(), "mark document delivered failed", "error", err, "id", photoID)
+	}
+
+	s.logger.InfoContext(r.Context(), "document delivered to 1c", "id", photoID, "trip", tripID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "id": photoID})
+}
+
+// forwardPhotoToOneC пересылает фото в 1С по отдельному контракту
+// (не через XML событий): бинарное тело как есть, метаданные в
+// заголовках, идемпотентность по X-Photo-Id. См. docs/backend-api.md.
+func (s *Server) forwardPhotoToOneC(
+	ctx context.Context,
+	photoID, assignmentID, tripID, contentType string,
+	data []byte,
+) (photoResultXML, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.OneCPhotoURL, bytes.NewReader(data))
+	if err != nil {
+		return photoResultXML{}, err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Photo-Id", photoID)
+	req.Header.Set("X-Assignment-Id", assignmentID)
+	req.Header.Set("X-Trip-Id", tripID)
+	if s.cfg.OneCToken != "" {
+		req.Header.Set("X-Auth-Token", s.cfg.OneCToken)
+	}
+	if s.cfg.OneCUsername != "" || s.cfg.OneCPassword != "" {
+		req.SetBasicAuth(s.cfg.OneCUsername, s.cfg.OneCPassword)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return photoResultXML{}, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxXMLBody))
+	if err != nil {
+		return photoResultXML{}, err
+	}
+
+	var result photoResultXML
+	if err := xml.Unmarshal(respBody, &result); err != nil {
+		return photoResultXML{}, fmt.Errorf("не удалось разобрать ответ 1С (status %d): %w", resp.StatusCode, err)
+	}
+	return result, nil
 }
 
 func (s *Server) forwardToOneC(ctx context.Context, body []byte) ([]byte, int, error) {

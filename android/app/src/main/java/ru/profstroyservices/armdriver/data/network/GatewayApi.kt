@@ -27,6 +27,7 @@ interface GatewayApi {
     @Multipart
     @POST("api/mobile/documents")
     suspend fun uploadDocument(
+        @Part("photo_id") photoId: RequestBody,
         @Part("driver_id") driverId: RequestBody,
         @Part("assignment_id") assignmentId: RequestBody,
         @Part("trip_id") tripId: RequestBody,

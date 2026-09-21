@@ -13,6 +13,7 @@ type Config struct {
 	OneCBaseURL   string
 	OneCToken     string
 	OneCEventsURL string
+	OneCPhotoURL  string
 	OneCUsername  string
 	OneCPassword  string
 	FCMCredsFile  string
@@ -35,6 +36,7 @@ func FromEnv() Config {
 		OneCBaseURL:   baseURL,
 		OneCToken:     os.Getenv("ONE_C_TOKEN"),
 		OneCEventsURL: baseURL + "/prtr_driver/events",
+		OneCPhotoURL:  baseURL + "/prtr_driver/photo",
 		OneCUsername:  os.Getenv("ONE_C_USERNAME"),
 		OneCPassword:  os.Getenv("ONE_C_PASSWORD"),
 		FCMCredsFile:  os.Getenv("FCM_SERVICE_ACCOUNT_FILE"),

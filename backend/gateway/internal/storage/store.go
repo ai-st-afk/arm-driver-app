@@ -1,8 +1,6 @@
 package storage
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -190,8 +188,16 @@ func (s *Store) GetDevice(driverID string) (Device, error) {
 }
 
 // SaveDocument сохраняет фото документа на диск и возвращает его метаданные.
+// id — GUID фото, сгенерированный на телефоне в момент съёмки (тот же
+// X-Photo-Id, что уйдёт в 1С — так очередь на телефоне и идемпотентность
+// на стороне 1С используют один и тот же идентификатор). Повторная
+// загрузка с тем же id (телефон повторяет отправку после обрыва) тихо
+// перезаписывает файл и метаданные, не плодит дублей.
 // ext — расширение с точкой (например ".jpg"), пришедшее от телефона.
-func (s *Store) SaveDocument(tripID, driverID, assignmentID, ext string, data []byte) (DocumentMeta, error) {
+func (s *Store) SaveDocument(id, tripID, driverID, assignmentID, ext string, data []byte) (DocumentMeta, error) {
+	if id == "" {
+		return DocumentMeta{}, errors.New("пустой идентификатор фото")
+	}
 	if tripID == "" {
 		return DocumentMeta{}, errors.New("пустой идентификатор ездки")
 	}
@@ -210,14 +216,13 @@ func (s *Store) SaveDocument(tripID, driverID, assignmentID, ext string, data []
 		return DocumentMeta{}, err
 	}
 
-	id, err := newID()
-	if err != nil {
-		return DocumentMeta{}, err
-	}
 	contentPath := filepath.Join("documents", id+ext)
 	if err := os.WriteFile(filepath.Join(s.dir, contentPath), data, 0o644); err != nil {
 		return DocumentMeta{}, err
 	}
+
+	// Повтор той же загрузки не должен терять уже проставленный DeliveredAt.
+	deliveredAt := idx.Documents[id].DeliveredAt
 
 	meta := DocumentMeta{
 		ID:           id,
@@ -226,10 +231,47 @@ func (s *Store) SaveDocument(tripID, driverID, assignmentID, ext string, data []
 		AssignmentID: assignmentID,
 		ContentPath:  contentPath,
 		ReceivedAt:   time.Now().UTC(),
+		DeliveredAt:  deliveredAt,
 	}
 	idx.Documents[id] = meta
 	if err := s.saveDocuments(idx); err != nil {
 		return DocumentMeta{}, err
+	}
+	return meta, nil
+}
+
+// MarkDocumentDelivered проставляет время подтверждённой доставки в 1С —
+// с этого момента для файла действует более короткий срок хранения
+// (см. CleanupOldDocuments).
+func (s *Store) MarkDocumentDelivered(id string, deliveredAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadDocuments()
+	if err != nil {
+		return err
+	}
+	meta, ok := idx.Documents[id]
+	if !ok {
+		return ErrNotFound
+	}
+	meta.DeliveredAt = &deliveredAt
+	idx.Documents[id] = meta
+	return s.saveDocuments(idx)
+}
+
+// GetDocument возвращает метаданные фото по его id (X-Photo-Id).
+func (s *Store) GetDocument(id string) (DocumentMeta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadDocuments()
+	if err != nil {
+		return DocumentMeta{}, err
+	}
+	meta, ok := idx.Documents[id]
+	if !ok {
+		return DocumentMeta{}, ErrNotFound
 	}
 	return meta, nil
 }
@@ -325,14 +367,6 @@ func (s *Store) loadDocuments() (documentsIndexFile, error) {
 
 func (s *Store) saveDocuments(idx documentsIndexFile) error {
 	return writeJSON(filepath.Join(s.dir, "documents.json"), idx)
-}
-
-func newID() (string, error) {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw[:]), nil
 }
 
 func readJSON(path string, dst any) error {

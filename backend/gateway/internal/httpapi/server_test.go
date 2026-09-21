@@ -113,20 +113,28 @@ func TestAssignmentXMLStoredAndReturnedAsMobileJSON(t *testing.T) {
 	}
 }
 
-func TestDocumentUploadStored(t *testing.T) {
-	api := newTestServer(t, config.Config{MobileToken: "mobile-token"})
+func TestDocumentUploadForwardedToOneCAndMarkedDelivered(t *testing.T) {
+	var gotPhotoID, gotAssignmentID, gotTripID, gotContentType string
+	var gotBody []byte
+	oneC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPhotoID = r.Header.Get("X-Photo-Id")
+		gotAssignmentID = r.Header.Get("X-Assignment-Id")
+		gotTripID = r.Header.Get("X-Trip-Id")
+		gotContentType = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Результат статус="ok" ид="` + gotPhotoID + `"/>`))
+	}))
+	defer oneC.Close()
+
+	api := newTestServer(t, config.Config{MobileToken: "mobile-token", OneCBaseURL: oneC.URL})
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("driver_id", "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162"); err != nil {
-		t.Fatalf("write driver_id field: %v", err)
-	}
-	if err := writer.WriteField("assignment_id", "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f"); err != nil {
-		t.Fatalf("write assignment_id field: %v", err)
-	}
-	if err := writer.WriteField("trip_id", "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b"); err != nil {
-		t.Fatalf("write trip_id field: %v", err)
-	}
+	_ = writer.WriteField("photo_id", "b3e2648a-9f42-4c18-b994-b03f4a705977")
+	_ = writer.WriteField("driver_id", "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162")
+	_ = writer.WriteField("assignment_id", "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f")
+	_ = writer.WriteField("trip_id", "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b")
 	part, err := writer.CreateFormFile("photo", "накладная.jpg")
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
@@ -151,6 +159,29 @@ func TestDocumentUploadStored(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"status":"ok"`) {
 		t.Fatalf("response does not contain status ok: %s", rec.Body.String())
 	}
+	if gotPhotoID != "b3e2648a-9f42-4c18-b994-b03f4a705977" {
+		t.Fatalf("X-Photo-Id forwarded = %q", gotPhotoID)
+	}
+	if gotAssignmentID != "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f" {
+		t.Fatalf("X-Assignment-Id forwarded = %q", gotAssignmentID)
+	}
+	if gotTripID != "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b" {
+		t.Fatalf("X-Trip-Id forwarded = %q", gotTripID)
+	}
+	if gotContentType != "image/jpeg" {
+		t.Fatalf("Content-Type forwarded = %q", gotContentType)
+	}
+	if string(gotBody) != "fake-jpeg-bytes" {
+		t.Fatalf("body forwarded to 1C = %q, want raw photo bytes", gotBody)
+	}
+
+	doc, err := api.store.GetDocument("b3e2648a-9f42-4c18-b994-b03f4a705977")
+	if err != nil {
+		t.Fatalf("get document: %v", err)
+	}
+	if doc.DeliveredAt == nil {
+		t.Fatalf("DeliveredAt not set after successful 1C forward")
+	}
 }
 
 func TestDocumentUploadRejectsUnsupportedType(t *testing.T) {
@@ -158,6 +189,7 @@ func TestDocumentUploadRejectsUnsupportedType(t *testing.T) {
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("photo_id", "b3e2648a-9f42-4c18-b994-b03f4a705977")
 	_ = writer.WriteField("driver_id", "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162")
 	_ = writer.WriteField("trip_id", "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b")
 	part, err := writer.CreateFormFile("photo", "doc.pdf")
@@ -181,11 +213,54 @@ func TestDocumentUploadRejectsUnsupportedType(t *testing.T) {
 	}
 }
 
+func TestDocumentUploadWithoutOneCConfiguredStaysPending(t *testing.T) {
+	api := newTestServer(t, config.Config{MobileToken: "mobile-token"})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("photo_id", "b3e2648a-9f42-4c18-b994-b03f4a705977")
+	_ = writer.WriteField("driver_id", "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162")
+	_ = writer.WriteField("trip_id", "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b")
+	part, err := writer.CreateFormFile("photo", "накладная.jpg")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	_, _ = part.Write([]byte("fake-jpeg-bytes"))
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mobile/documents", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Auth-Token", "mobile-token")
+	rec := httptest.NewRecorder()
+
+	api.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// Локальная копия должна остаться, даже если в 1С не ушло — иначе
+	// телефон повторит отправку, а нам нечего будет досылать при
+	// появлении ONE_C_BASE_URL.
+	doc, err := api.store.GetDocument("b3e2648a-9f42-4c18-b994-b03f4a705977")
+	if err != nil {
+		t.Fatalf("document should be saved locally even without 1C configured: %v", err)
+	}
+	if doc.DeliveredAt != nil {
+		t.Fatalf("DeliveredAt should not be set without 1C forwarding")
+	}
+}
+
 func newTestServer(t *testing.T, cfg config.Config) *Server {
 	t.Helper()
 	cfg.DataDir = t.TempDir()
 	if cfg.OneCEventsURL == "" && cfg.OneCBaseURL != "" {
 		cfg.OneCEventsURL = cfg.OneCBaseURL + "/prtr_driver/events"
+	}
+	if cfg.OneCPhotoURL == "" && cfg.OneCBaseURL != "" {
+		cfg.OneCPhotoURL = cfg.OneCBaseURL + "/prtr_driver/photo"
 	}
 	store, err := storage.New(cfg.DataDir)
 	if err != nil {
