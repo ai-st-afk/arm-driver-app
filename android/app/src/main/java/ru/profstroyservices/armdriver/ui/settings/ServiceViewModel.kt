@@ -9,8 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import ru.profstroyservices.armdriver.data.network.GatewayApi
+import ru.profstroyservices.armdriver.data.network.userMessage
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
-import ru.profstroyservices.armdriver.ui.components.userMessage
 import javax.inject.Inject
 
 sealed interface BindState {

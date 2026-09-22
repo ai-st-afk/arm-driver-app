@@ -1,4 +1,4 @@
-package ru.profstroyservices.armdriver.ui.components
+package ru.profstroyservices.armdriver.data.network
 
 import retrofit2.HttpException
 import java.io.IOException

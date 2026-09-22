@@ -38,9 +38,12 @@ fun UnsentBanner(state: QueueState, onRetry: () -> Unit, modifier: Modifier = Mo
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
-            state.rejectionReason?.let { reason ->
+            // networkError важнее: если сейчас нет связи вообще, это и есть
+            // причина, а отказ 1С по прошлой попытке — уже не главное.
+            val reasonText = state.networkError ?: state.rejectionReason?.let { "1С отклонила: $it" }
+            reasonText?.let { text ->
                 Text(
-                    text = "1С отклонила: $reason",
+                    text = text,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
