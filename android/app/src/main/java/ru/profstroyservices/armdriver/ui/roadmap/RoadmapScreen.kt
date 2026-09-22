@@ -17,13 +17,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,6 +39,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -79,8 +85,14 @@ private val actionLabels = mapOf(
     EventTypes.RAZGRUZILSYA to "Разгрузился (фото документа)"
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
+fun RoadmapScreen(
+    // См. AssignmentScreen — задан только когда экран открыт из списка-пикера
+    // (разнарядок несколько), иначе показывать нечего вести назад.
+    onBack: (() -> Unit)? = null,
+    viewModel: RoadmapViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsState()
     var sryvTarget by remember { mutableStateOf<TripDto?>(null) }
     var expandedTripId by remember { mutableStateOf<String?>(null) }
@@ -125,7 +137,21 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
         }
     }
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
+    Scaffold(
+        topBar = {
+            if (onBack != null) {
+                TopAppBar(
+                    title = {},
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад к списку разнарядок")
+                        }
+                    }
+                )
+            }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (val state = uiState) {
                 is RoadmapUiState.Loading -> Column(

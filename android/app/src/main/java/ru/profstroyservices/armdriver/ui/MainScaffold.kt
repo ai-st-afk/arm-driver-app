@@ -125,7 +125,14 @@ fun MainScaffold(
                         MainRoutes.ASSIGNMENT_DETAIL,
                         arguments = listOf(navArgument("assignmentId") { type = NavType.StringType })
                     ) {
-                        AssignmentScreen()
+                        // Стрелка назад видна, только если сюда реально
+                        // пришли из списка (разнарядок несколько) — при
+                        // единственной список пропускается насквозь
+                        // (popUpTo inclusive в onSingle выше), и предыдущей
+                        // записи с ним в стеке не будет вообще.
+                        val cameFromList = navController.previousBackStackEntry
+                            ?.destination?.route == MainRoutes.ASSIGNMENTS
+                        AssignmentScreen(onBack = { navController.popBackStack() }.takeIf { cameFromList })
                     }
                 }
 
@@ -144,7 +151,9 @@ fun MainScaffold(
                         MainRoutes.ROADMAP,
                         arguments = listOf(navArgument("assignmentId") { type = NavType.StringType })
                     ) {
-                        RoadmapScreen()
+                        val cameFromList = navController.previousBackStackEntry
+                            ?.destination?.route == MainRoutes.TRIPS
+                        RoadmapScreen(onBack = { navController.popBackStack() }.takeIf { cameFromList })
                     }
                 }
 

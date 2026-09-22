@@ -12,12 +12,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,13 +44,34 @@ import java.util.Locale
 // По этим кнопкам бьют в перчатках и в тряске — они крупнее обычных.
 private val ButtonHeight = 64.dp
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AssignmentScreen(viewModel: AssignmentViewModel = hiltViewModel()) {
+fun AssignmentScreen(
+    // Задан только когда экран открыт из списка разнарядок (их несколько) —
+    // тогда есть куда возвращаться. При единственной разнарядке список
+    // пропускается насквозь (см. AssignmentsGate), стрелка назад тут вела
+    // бы в никуда, поэтому её не показываем.
+    onBack: (() -> Unit)? = null,
+    viewModel: AssignmentViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsState()
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
-    Scaffold { innerPadding ->
+    Scaffold(
+        topBar = {
+            if (onBack != null) {
+                TopAppBar(
+                    title = {},
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад к списку разнарядок")
+                        }
+                    }
+                )
+            }
+        }
+    ) { innerPadding ->
         when (val state = uiState) {
             is AssignmentUiState.Loading -> Box(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
