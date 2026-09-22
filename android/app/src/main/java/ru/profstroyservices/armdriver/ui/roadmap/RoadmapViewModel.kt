@@ -63,7 +63,13 @@ sealed interface RoadmapUiState {
         // Первый незакрытый рейс по порядку — её карточка раскрыта и
         // подсвечена. Остальные видны и доступны (решение автора: водитель
         // должен видеть все рейсы), просто свёрнуты.
-        val activeTripId: String?
+        val activeTripId: String?,
+        // Раньше действия по рейсам можно было выполнять независимо от
+        // того, начата смена или нет — баг, найденный автором. Список ездок
+        // виден всегда (см. activeTripId выше), а вот кнопки цикла, срыв и
+        // отмена шага требуют начатой смены — без неё эти события для 1С
+        // бессмысленны (флоу «Ознакомление → НачалоСмены → ездки»).
+        val shiftStarted: Boolean
     ) : RoadmapUiState
 }
 
@@ -143,13 +149,27 @@ class RoadmapViewModel @Inject constructor(
         _uiState.value = RoadmapUiState.Content(
             assignmentId = assignment.id,
             trips = trips,
-            activeTripId = trips.firstOrNull { !it.isResolved }?.trip?.id
+            activeTripId = trips.firstOrNull { !it.isResolved }?.trip?.id,
+            shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled }
         )
+    }
+
+    // Автор нашёл: кнопки цикла ездки срабатывали независимо от того, начата
+    // смена или нет — проверки не было вообще. Здесь, а не только в UI
+    // (RoadmapScreen прячет кнопки при !shiftStarted): UI-гейт можно обойти
+    // случайным кадром рекомпозиции, а enqueue пишет реальный GUID-факт.
+    private fun requireShiftStarted(): RoadmapUiState.Content? {
+        val state = _uiState.value as? RoadmapUiState.Content ?: return null
+        if (!state.shiftStarted) {
+            emitFeedback("Сначала начните смену на вкладке «Разнарядка»", null)
+            return null
+        }
+        return state
     }
 
     fun onTripAction(trip: TripDto, type: String) {
         val id = driverId ?: return
-        val assignmentId = (_uiState.value as? RoadmapUiState.Content)?.assignmentId ?: return
+        val assignmentId = requireShiftStarted()?.assignmentId ?: return
         viewModelScope.launch {
             val eventId = eventQueue.enqueue(
                 type = type,
@@ -165,7 +185,7 @@ class RoadmapViewModel @Inject constructor(
 
     fun onSryv(trip: TripDto, comment: String) {
         val id = driverId ?: return
-        val assignmentId = (_uiState.value as? RoadmapUiState.Content)?.assignmentId ?: return
+        val assignmentId = requireShiftStarted()?.assignmentId ?: return
         viewModelScope.launch {
             val eventId = eventQueue.enqueue(
                 type = EventTypes.SRYV,
@@ -244,7 +264,7 @@ class RoadmapViewModel @Inject constructor(
     // если сети нет прямо сейчас), потом обычное событие Разгрузился.
     fun onPhotoCaptured(trip: TripDto, file: File) {
         val id = driverId ?: return
-        val assignmentId = (_uiState.value as? RoadmapUiState.Content)?.assignmentId ?: return
+        val assignmentId = requireShiftStarted()?.assignmentId ?: return
         viewModelScope.launch {
             documents.enqueue(file = file, driverId = id, assignmentId = assignmentId, tripId = trip.id)
             eventQueue.enqueue(
@@ -266,7 +286,7 @@ class RoadmapViewModel @Inject constructor(
     // поэтому причина уходит комментарием к событию, а не теряется.
     fun onUnloadWithoutPhoto(trip: TripDto, reason: String) {
         val id = driverId ?: return
-        val assignmentId = (_uiState.value as? RoadmapUiState.Content)?.assignmentId ?: return
+        val assignmentId = requireShiftStarted()?.assignmentId ?: return
         viewModelScope.launch {
             val eventId = eventQueue.enqueue(
                 type = EventTypes.RAZGRUZILSYA,

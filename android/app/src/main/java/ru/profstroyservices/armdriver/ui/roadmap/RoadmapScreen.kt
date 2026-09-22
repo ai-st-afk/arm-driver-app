@@ -144,10 +144,20 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    if (!state.shiftStarted) {
+                        item {
+                            Text(
+                                text = "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка».",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                     items(state.trips, key = { it.trip.id }) { tripState ->
                         TripRow(
                             state = tripState,
                             isActive = tripState.trip.id == state.activeTripId,
+                            shiftStarted = state.shiftStarted,
                             expanded = tripState.trip.id == expandedTripId,
                             onToggle = {
                                 expandedTripId = if (expandedTripId == tripState.trip.id) {
@@ -248,6 +258,7 @@ private fun NoPhotoDialog(
 private fun TripRow(
     state: TripUiState,
     isActive: Boolean,
+    shiftStarted: Boolean,
     expanded: Boolean,
     onToggle: () -> Unit,
     onAction: (String) -> Unit,
@@ -274,7 +285,13 @@ private fun TripRow(
 
             if (expanded) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                ExpandedDetails(state = state, onAction = onAction, onSryv = onSryv, onStepBack = onStepBack)
+                ExpandedDetails(
+                    state = state,
+                    shiftStarted = shiftStarted,
+                    onAction = onAction,
+                    onSryv = onSryv,
+                    onStepBack = onStepBack
+                )
             }
         }
     }
@@ -327,6 +344,7 @@ private fun CollapsedHeader(state: TripUiState, isActive: Boolean) {
 @Composable
 private fun ExpandedDetails(
     state: TripUiState,
+    shiftStarted: Boolean,
     onAction: (String) -> Unit,
     onSryv: () -> Unit,
     onStepBack: () -> Unit
@@ -364,6 +382,26 @@ private fun ExpandedDetails(
             color = MaterialTheme.colorScheme.error,
             fontWeight = FontWeight.SemiBold
         )
+        return
+    }
+
+    if (!shiftStarted) {
+        Text(
+            text = "Начните смену, чтобы отмечать этапы этого рейса.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        // Если шаг всё же успел записаться до начала смены (например, с
+        // версии до этого фикса) — дать его откатить, а не оставлять
+        // висеть без возможности исправить.
+        if (state.doneTypes.isNotEmpty()) {
+            OutlinedButton(
+                onClick = onStepBack,
+                modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)
+            ) {
+                Text("Отмена", style = MaterialTheme.typography.labelLarge)
+            }
+        }
         return
     }
 
