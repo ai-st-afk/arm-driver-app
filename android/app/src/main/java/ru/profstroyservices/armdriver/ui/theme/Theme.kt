@@ -81,7 +81,7 @@ fun ArmDriverTheme(
     MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
 }
 
-// Статус ездки в roadmap: активная — зелёная, остальные серые. Цвет никогда
+// Статус рейса в roadmap: активная — зелёная, остальные серые. Цвет никогда
 // не остаётся единственным признаком (рядом всегда слово), иначе на солнце
 // и при дальтонизме разница пропадает.
 @Composable

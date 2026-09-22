@@ -47,6 +47,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -83,6 +85,8 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
     var sryvTarget by remember { mutableStateOf<TripDto?>(null) }
     var expandedTripId by remember { mutableStateOf<String?>(null) }
 
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshFromNetwork() }
+
     val snackbarHostState = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
 
@@ -98,13 +102,13 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
             viewModel.onPhotoCaptured(target.first, target.second)
         } else if (target != null) {
             // Раньше неудачная съёмка проходила молча: водитель жал кнопку,
-            // ничего не происходило, и он не понимал, закрылась ездка или нет.
+            // ничего не происходило, и он не понимал, закрылся рейс или нет.
             noPhotoTarget = target.first
         }
     }
 
     val activeTripId = (uiState as? RoadmapUiState.Content)?.activeTripId
-    // Активная ездка раскрыта сама: закрыл предыдущую — следующая открылась.
+    // Активный рейс раскрыт сам: закрыл предыдущую — следующая открылась.
     LaunchedEffect(activeTripId) { expandedTripId = activeTripId }
 
     LaunchedEffect(Unit) {
@@ -161,7 +165,8 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
                                     viewModel.onTripAction(tripState.trip, type)
                                 }
                             },
-                            onSryv = { sryvTarget = tripState.trip }
+                            onSryv = { sryvTarget = tripState.trip },
+                            onStepBack = { viewModel.onStepBack(tripState.trip) }
                         )
                     }
                 }
@@ -196,7 +201,7 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
     }
 }
 
-// Фото не получилось. Закрыть ездку всё равно надо — иначе встаёт смена,
+// Фото не получилось. Закрыть рейс всё равно надо — иначе встаёт смена,
 // а диспетчер не сможет закрыть разнарядку. Причина обязательна: она уйдёт
 // в 1С комментарием, чтобы отсутствие накладной было объяснено.
 @Composable
@@ -246,7 +251,8 @@ private fun TripRow(
     expanded: Boolean,
     onToggle: () -> Unit,
     onAction: (String) -> Unit,
-    onSryv: () -> Unit
+    onSryv: () -> Unit,
+    onStepBack: () -> Unit
 ) {
     val activeColor = statusActiveColor()
 
@@ -268,7 +274,7 @@ private fun TripRow(
 
             if (expanded) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                ExpandedDetails(state = state, onAction = onAction, onSryv = onSryv)
+                ExpandedDetails(state = state, onAction = onAction, onSryv = onSryv, onStepBack = onStepBack)
             }
         }
     }
@@ -322,7 +328,8 @@ private fun CollapsedHeader(state: TripUiState, isActive: Boolean) {
 private fun ExpandedDetails(
     state: TripUiState,
     onAction: (String) -> Unit,
-    onSryv: () -> Unit
+    onSryv: () -> Unit,
+    onStepBack: () -> Unit
 ) {
     val trip = state.trip
 
@@ -348,12 +355,12 @@ private fun ExpandedDetails(
     if (state.isCancelled) return
 
     if (state.doneTypes.contains(EventTypes.RAZGRUZILSYA)) {
-        Text(text = "Ездка завершена", color = CompletedGreen, fontWeight = FontWeight.SemiBold)
+        Text(text = "Рейс завершён", color = CompletedGreen, fontWeight = FontWeight.SemiBold)
         return
     }
     if (state.doneTypes.contains(EventTypes.SRYV)) {
         Text(
-            text = "Ездка сорвана",
+            text = "Рейс сорван",
             color = MaterialTheme.colorScheme.error,
             fontWeight = FontWeight.SemiBold
         )
@@ -369,26 +376,49 @@ private fun ExpandedDetails(
             Text(actionLabels.getValue(next), style = MaterialTheme.typography.labelLarge)
         }
     }
+
+    // Есть хотя бы один пройденный шаг цикла (RAZGRUZILSYA/SRYV сюда не
+    // доходят — при них выше уже return) — значит случайный повторный тап
+    // мог продвинуть рейс дальше, чем нужно. «Отмена» откатывает последний
+    // шаг и остаётся в «Истории» с пометкой, а не пропадает бесследно.
+    if (state.doneTypes.isNotEmpty()) {
+        OutlinedButton(
+            onClick = onStepBack,
+            modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)
+        ) {
+            Text("Отмена", style = MaterialTheme.typography.labelLarge)
+        }
+    }
+
     // Срыв — редкое и тяжёлое действие, поэтому визуально слабее основного,
     // чтобы в него не попадали случайно.
     TextButton(
         onClick = onSryv,
         modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)
     ) {
-        Text("Ездка сорвана", color = MaterialTheme.colorScheme.error)
+        Text("Рейс сорван", color = MaterialTheme.colorScheme.error)
     }
 }
 
-// Адрес открывается в том навигаторе, что стоит у водителя (geo: понимают
-// и Яндекс.Карты, и 2ГИС, и Google Maps). Если адрес не пришёл — нажимать
-// нечего, поле остаётся обычным текстом.
+// Открываем адрес в Яндекс.Картах явным intent'ом на их пакет — в контракте
+// с 1С координат точек нет, только текстовый адрес, а по тексту Яндекс.
+// Навигатор маршрут не строит (нужны координаты), в отличие от Яндекс.Карт,
+// которые умеют поиск по тексту. Если Яндекса нет — общий geo: intent,
+// его понимают 2ГИС и Google Maps, откроется что установлено у водителя.
 @Composable
 private fun navigateAction(point: PointDto): (() -> Unit)? {
     val context = LocalContext.current
     val address = firstNotBlank(point.address, point.name) ?: return null
     return {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(address)}"))
-        runCatching { context.startActivity(intent) }
+        val encoded = Uri.encode(address)
+        val yandex = Intent(Intent.ACTION_VIEW, Uri.parse("yandexmaps://maps.yandex.ru/?text=$encoded")).apply {
+            setPackage("ru.yandex.yandexmaps")
+        }
+        val openedYandex = runCatching { context.startActivity(yandex) }.isSuccess
+        if (!openedYandex) {
+            val fallback = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encoded"))
+            runCatching { context.startActivity(fallback) }
+        }
     }
 }
 

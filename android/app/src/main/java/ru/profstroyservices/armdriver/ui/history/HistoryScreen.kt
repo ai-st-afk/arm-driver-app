@@ -17,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ru.profstroyservices.armdriver.ui.components.formatEventDateTime
@@ -57,15 +58,27 @@ private fun HistoryRow(item: HistoryItemUiState) {
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(text = item.typeLabel, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = item.typeLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                // Отменённое действие видно в истории (водитель сам это
+                // отменил), но зачёркнуто — чтобы не путать с реально
+                // случившимся шагом.
+                textDecoration = if (item.cancelled) TextDecoration.LineThrough else null,
+                color = if (item.cancelled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+            )
             Text(text = formatEventDateTime(item.time), style = MaterialTheme.typography.bodySmall)
             Text(
-                text = if (item.sent) "отправлено" else "в очереди",
+                text = when {
+                    item.cancelled -> "отменено водителем"
+                    item.sent -> "отправлено"
+                    else -> "в очереди"
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (item.sent) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
+                color = if (!item.cancelled && !item.sent) {
                     MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 }
             )
             item.error?.let { error ->

@@ -10,6 +10,7 @@ import dagger.hilt.components.SingletonComponent
 import ru.profstroyservices.armdriver.data.db.AppDatabase
 import ru.profstroyservices.armdriver.data.db.CachedAssignmentDao
 import ru.profstroyservices.armdriver.data.db.MIGRATION_3_4
+import ru.profstroyservices.armdriver.data.db.MIGRATION_4_5
 import ru.profstroyservices.armdriver.data.db.PendingEventDao
 import ru.profstroyservices.armdriver.data.db.PendingPhotoDao
 import javax.inject.Singleton
@@ -22,7 +23,7 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "arm-driver.db")
-            .addMigrations(MIGRATION_3_4)
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
             // Схемы 1 и 2 существовали только на машинах разработки — их
             // пересоздаём. Начиная с 3 база переживает обновление приложения,
             // иначе вместе с ней уедет неотправленная очередь событий.

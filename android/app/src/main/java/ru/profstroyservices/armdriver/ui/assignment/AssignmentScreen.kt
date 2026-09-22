@@ -2,6 +2,7 @@ package ru.profstroyservices.armdriver.ui.assignment
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,30 +45,32 @@ fun AssignmentScreen(viewModel: AssignmentViewModel = hiltViewModel()) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Scaffold { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            AppHeader()
+        when (val state = uiState) {
+            is AssignmentUiState.Loading -> Box(
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
 
-            when (val state = uiState) {
-                is AssignmentUiState.Loading -> Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator()
-                }
+            is AssignmentUiState.Error -> Text(
+                text = state.message,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(innerPadding).padding(20.dp)
+            )
 
-                is AssignmentUiState.Error -> Text(
-                    text = state.message,
-                    color = MaterialTheme.colorScheme.error
-                )
-
-                is AssignmentUiState.Content -> AssignmentContent(
+            is AssignmentUiState.Content -> Column(
+                // Баннер неотправленного сверху съедает высоту экрана — без
+                // скролла низ (кнопки смены) обрезался и не долистывался.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                AppHeader()
+                AssignmentContent(
                     state = state,
                     onAcknowledge = viewModel::onAcknowledge,
                     onStartShift = viewModel::onStartShift,
@@ -113,7 +118,7 @@ private fun AssignmentContent(
             label = "Машина",
             value = "${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim()
         )
-        LabeledField(label = "Ездок на смену", value = assignment.trips.size.toString())
+        LabeledField(label = "Рейсов на смену", value = assignment.trips.size.toString())
         LabeledField(label = "Статус смены", value = shiftStatusLabel(state))
     }
 
@@ -160,7 +165,7 @@ private fun AssignmentContent(
 
         if (!state.shiftEnded) {
             Text(
-                text = "Ездки — во вкладке «Мои ездки».",
+                text = "Рейсы — во вкладке «Мои рейсы».",
                 style = MaterialTheme.typography.bodySmall
             )
         }

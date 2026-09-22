@@ -88,9 +88,9 @@ class AssignmentViewModel @Inject constructor(
         val events: List<PendingEventEntity> = eventQueue.observeForAssignment(assignment.id).first()
         _uiState.value = AssignmentUiState.Content(
             assignment = assignment,
-            acknowledged = events.any { it.type == EventTypes.OZNAKOMLENIE },
-            shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY },
-            shiftEnded = events.any { it.type == EventTypes.OKONCHANIE_SMENY },
+            acknowledged = events.any { it.type == EventTypes.OZNAKOMLENIE && !it.cancelled },
+            shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled },
+            shiftEnded = events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled },
             updatedAt = assignmentRepository.getCachedUpdatedAt(assignment.id)
         )
     }

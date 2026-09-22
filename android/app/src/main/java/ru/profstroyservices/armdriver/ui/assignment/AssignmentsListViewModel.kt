@@ -29,7 +29,7 @@ sealed interface AssignmentsListUiState {
 }
 
 // Общий источник данных для корня таба «Разнарядка» и пикера в табе
-// «Мои ездки» — за день у водителя может быть несколько разнарядок
+// «Мои рейсы» — за день у водителя может быть несколько разнарядок
 // (Stage 8), оба таба показывают один и тот же список, только ведут по
 // тапу в разные маршруты.
 @HiltViewModel
@@ -71,9 +71,9 @@ class AssignmentsListViewModel @Inject constructor(
     private suspend fun AssignmentDto.toSummary(): AssignmentSummary {
         val events = eventQueue.observeForAssignment(id).first()
         val statusLabel = when {
-            events.any { it.type == EventTypes.OKONCHANIE_SMENY } -> "смена завершена"
-            events.any { it.type == EventTypes.NACHALO_SMENY } -> "смена идёт"
-            events.any { it.type == EventTypes.OZNAKOMLENIE } -> "ознакомлен"
+            events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled } -> "смена завершена"
+            events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled } -> "смена идёт"
+            events.any { it.type == EventTypes.OZNAKOMLENIE && !it.cancelled } -> "ознакомлен"
             else -> "не ознакомлен"
         }
         return AssignmentSummary(id = id, number = number, departureDay = departureDay, statusLabel = statusLabel)

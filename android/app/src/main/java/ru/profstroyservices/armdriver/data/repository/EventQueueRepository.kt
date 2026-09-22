@@ -56,7 +56,19 @@ class EventQueueRepository @Inject constructor(
         return id
     }
 
-    suspend fun cancelPending(id: String) = dao.deleteIfUnsent(id)
+    // Кнопка «Отмена» — общий путь и для быстрого отката в снекбаре сразу
+    // после нажатия, и для явной отмены шага рейса позже. Событие не
+    // удаляется (см. PendingEventEntity.cancelled) — остаётся видно в
+    // «Истории» с пометкой «отменено». Возвращает false, если событие уже
+    // отправлено в 1С — тогда отменять локально нечего, это уже факт.
+    suspend fun cancelPending(id: String): Boolean = dao.markCancelled(id) > 0
+
+    // То же самое, но по типу шага и рейсу — когда конкретный id события
+    // уже не под рукой (кнопка «Отмена» открыта позже, не сразу после тапа).
+    suspend fun cancelStep(assignmentId: String, tripId: String, type: String): Boolean {
+        val event = dao.findUnsent(assignmentId, tripId, type) ?: return false
+        return cancelPending(event.id)
+    }
 
     // Инвариант 2 из AGENTS.md: помечаем отправленными только accepted:true,
     // поштучно. Если весь запрос упал (сети нет, gateway недоступен, ONE_C

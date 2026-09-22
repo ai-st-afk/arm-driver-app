@@ -24,7 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 
-// Общий вход для корня таба «Разнарядка» и таба «Мои ездки»: обе вкладки
+// Общий вход для корня таба «Разнарядка» и таба «Мои рейсы»: обе вкладки
 // смотрят на один и тот же список разнарядок водителя за окно (см.
 // ASSIGNMENT_LIST_WINDOW_HOURS на backend) и различаются только тем, куда
 // ведут — на карточку разнарядки или сразу на roadmap. Если разнарядка

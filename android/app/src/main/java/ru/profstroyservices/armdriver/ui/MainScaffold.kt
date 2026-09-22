@@ -40,7 +40,7 @@ import ru.profstroyservices.armdriver.ui.settings.SettingsScreen
 
 // Постоянный нижний таб-бар — это и есть «всегда можно выйти в главное
 // меню» из запроса автора: не нужен отдельный пункт «Главная», сам бар
-// доступен на всех вложенных экранах. «Разнарядка» и «Мои ездки» — каждая
+// доступен на всех вложенных экранах. «Разнарядка» и «Мои рейсы» — каждая
 // свой вложенный граф (корень-список + карточка/roadmap по id), чтобы
 // стандартный паттерн save/restore по табам (popUpTo графа + restoreState)
 // корректно восстанавливал, где пользователь был внутри таба, а не только
@@ -65,7 +65,7 @@ private data class TabItem(val navTarget: String, val selectionRoute: String, va
 
 private val tabs = listOf(
     TabItem(MainRoutes.ASSIGNMENTS_GRAPH, MainRoutes.ASSIGNMENTS_GRAPH, "Разнарядка", Icons.Filled.Assignment),
-    TabItem(MainRoutes.TRIPS_GRAPH, MainRoutes.TRIPS_GRAPH, "Мои ездки", Icons.Filled.LocalShipping),
+    TabItem(MainRoutes.TRIPS_GRAPH, MainRoutes.TRIPS_GRAPH, "Мои рейсы", Icons.Filled.LocalShipping),
     TabItem(MainRoutes.HISTORY, MainRoutes.HISTORY, "История", Icons.Filled.History),
     TabItem(MainRoutes.SETTINGS, MainRoutes.SETTINGS, "Настройки", Icons.Filled.Settings)
 )

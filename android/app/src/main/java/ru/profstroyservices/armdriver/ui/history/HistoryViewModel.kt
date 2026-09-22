@@ -18,6 +18,7 @@ data class HistoryItemUiState(
     val tripId: String?,
     val time: String,
     val sent: Boolean,
+    val cancelled: Boolean,
     val error: String?
 )
 
@@ -28,7 +29,7 @@ private val eventTypeLabels = mapOf(
     EventTypes.ZAGRUZILSYA_V_PUT to "Загрузился, в пути",
     EventTypes.PRIBYL_NA_RAZGRUZKU to "Прибыл на разгрузку",
     EventTypes.RAZGRUZILSYA to "Разгрузился",
-    EventTypes.SRYV to "Ездка сорвана",
+    EventTypes.SRYV to "Рейс сорван",
     EventTypes.OKONCHANIE_SMENY to "Окончание смены"
 )
 
@@ -50,6 +51,7 @@ class HistoryViewModel @Inject constructor(
                     tripId = event.tripId,
                     time = event.time,
                     sent = event.sent,
+                    cancelled = event.cancelled,
                     error = event.lastError
                 )
             }

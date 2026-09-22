@@ -133,6 +133,44 @@ class AppDatabaseTest {
     }
 
     @Test
+    fun cancelledStepStaysVisibleInHistoryAndAllowsRedo() = runBlocking {
+        val dao = db.pendingEventDao()
+        val assignmentId = "e28a5167-b292-11f1-9835-d85ed35a8f26"
+        val tripId = "cc32f791-f71e-4b93-96c0-88066a0cddef"
+        val event = PendingEventEntity(
+            id = "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+            type = "ПрибылНаПогрузку",
+            driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee",
+            assignmentId = assignmentId,
+            tripId = tripId,
+            time = "2026-09-22T06:20:00+03:00",
+            comment = ""
+        )
+        dao.insert(event)
+
+        val affected = dao.markCancelled(event.id)
+
+        // Отмена — не удаление: строка остаётся в «Истории» (observeAll),
+        // но пропадает из счётчика неотправленного и из doneTypes-выборки.
+        assertEquals(1, affected)
+        assertEquals(1, dao.observeAll().first().size)
+        assertEquals(0, dao.getUnsent().size)
+        assertEquals(0, dao.observeUnsentCount().first())
+
+        // Отменённый шаг не блокирует повтор — можно завести тот же тип
+        // события заново с новым GUID (водитель реально делает шаг).
+        assertEquals(false, dao.exists(assignmentId, event.type, tripId))
+        val redo = event.copy(id = "b2c3d4e5-6f7a-4b8c-9d0e-1f2a3b4c5d6e")
+        dao.insert(redo)
+        assertEquals(2, dao.observeAll().first().size)
+
+        // Уже отправленное событие отменить нельзя (инвариант 2: у 1С это
+        // уже факт) — markCancelled возвращает 0 изменённых строк.
+        dao.markSent(redo.id)
+        assertEquals(0, dao.markCancelled(redo.id))
+    }
+
+    @Test
     fun cacheAndReadAssignment() = runBlocking {
         val driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee"
         val assignment = AssignmentDto(

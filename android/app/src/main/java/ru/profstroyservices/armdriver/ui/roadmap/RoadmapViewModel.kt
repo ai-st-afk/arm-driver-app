@@ -60,9 +60,9 @@ sealed interface RoadmapUiState {
     data class Content(
         val assignmentId: String,
         val trips: List<TripUiState>,
-        // Первая незакрытая ездка по порядку — её карточка раскрыта и
+        // Первый незакрытый рейс по порядку — её карточка раскрыта и
         // подсвечена. Остальные видны и доступны (решение автора: водитель
-        // должен видеть все ездки), просто свёрнуты.
+        // должен видеть все рейсы), просто свёрнуты.
         val activeTripId: String?
     ) : RoadmapUiState
 }
@@ -114,12 +114,30 @@ class RoadmapViewModel @Inject constructor(
         }
     }
 
+    // Дёргается при каждом возврате на экран. Раньше roadmap читал только
+    // локальный кэш и никогда не ходил в сеть заново — если 1С присылала
+    // отмену рейса (та же разнарядка новой версией, подтверждено 1С-командой),
+    // водитель не видел изменений, пока не перезапускал приложение, даже если
+    // этот самый рейс был у него открыта на экране.
+    fun refreshFromNetwork() {
+        if (driverId == null) return
+        viewModelScope.launch {
+            val assignment = runCatching { assignmentRepository.getById(assignmentId) }.getOrNull() ?: return@launch
+            refresh(assignment)
+        }
+    }
+
     private suspend fun refresh(assignment: AssignmentDto) {
         val events = eventQueue.observeForAssignment(assignment.id).first()
         val trips = assignment.trips
             .sortedBy { it.order }
             .map { trip ->
-                val doneTypes = events.filter { it.tripId == trip.id }.map { it.type }.toSet()
+                // Отменённый шаг (cancelled) не в счёт — для UI это как будто
+                // его и не было, водитель снова видит кнопку этого шага.
+                val doneTypes = events
+                    .filter { it.tripId == trip.id && !it.cancelled }
+                    .map { it.type }
+                    .toSet()
                 TripUiState(trip, doneTypes)
             }
         _uiState.value = RoadmapUiState.Content(
@@ -157,22 +175,46 @@ class RoadmapViewModel @Inject constructor(
                 comment = comment
             )
             reloadFromCache()
-            emitFeedback("Ездка отмечена как сорванная", eventId)
+            emitFeedback("Рейс отмечен как сорванный", eventId)
             scheduleFlush()
         }
     }
 
-    // Отмена работает только до фактической отправки. Само событие пишется в
+    // Быстрая отмена сразу после нажатия (кнопка «Отменить» в снекбаре).
+    // Работает только до фактической отправки. Само событие пишется в
     // очередь сразу — GUID и время фиксируются в момент нажатия (инвариант 1),
     // откладывается только отправка.
     fun onUndo(eventId: String) {
         viewModelScope.launch {
             // Сначала гасим отложенную отправку, чтобы событие не успело
-            // уехать между нажатием «Отменить» и удалением строки.
+            // уехать между нажатием «Отменить» и его отменой.
             flushJob?.cancel()
             eventQueue.cancelPending(eventId)
             reloadFromCache()
             // Остальная очередь не виновата — её всё равно надо дослать.
+            scheduleFlush()
+        }
+    }
+
+    // Кнопка «Отмена» в карточке рейса — доступна не только в первые
+    // секунды после нажатия, а пока действительно не поздно (шаг ещё не
+    // ушёл в 1С). Нужна на случай, когда за пару быстрых тапов подряд
+    // водитель случайно проскочил на шаг вперёд: отменяет последний
+    // выполненный шаг цикла и возвращает рейс на шаг назад.
+    fun onStepBack(trip: TripDto) {
+        val state = _uiState.value as? RoadmapUiState.Content ?: return
+        val tripState = state.trips.find { it.trip.id == trip.id } ?: return
+        val lastType = EventTypes.TRIP_CYCLE.lastOrNull { it in tripState.doneTypes } ?: return
+        val assignmentId = state.assignmentId
+        viewModelScope.launch {
+            flushJob?.cancel()
+            val cancelled = eventQueue.cancelStep(assignmentId, trip.id, lastType)
+            reloadFromCache()
+            if (cancelled) {
+                emitFeedback("${actionFeedbackText(lastType)} — отменено", null)
+            } else {
+                emitFeedback("Шаг уже отправлен в 1С, отменить нельзя", null)
+            }
             scheduleFlush()
         }
     }
@@ -213,14 +255,14 @@ class RoadmapViewModel @Inject constructor(
             )
             reloadFromCache()
             // Отмены здесь нет: фото уже снято и лежит в своей очереди,
-            // откат события оставил бы его висеть без ездки.
+            // откат события оставил бы его висеть без рейса.
             emitFeedback(actionFeedbackText(EventTypes.RAZGRUZILSYA), null)
             retryQueue()
         }
     }
 
     // Разгрузка без фото: накладную не отдали, камера не сработала, телефон
-    // сел. Без этого пути ездку нельзя закрыть вообще и встаёт вся смена,
+    // сел. Без этого пути рейс нельзя закрыть вообще и встаёт вся смена,
     // поэтому причина уходит комментарием к событию, а не теряется.
     fun onUnloadWithoutPhoto(trip: TripDto, reason: String) {
         val id = driverId ?: return
