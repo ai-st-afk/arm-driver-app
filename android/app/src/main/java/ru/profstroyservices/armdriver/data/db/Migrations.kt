@@ -17,3 +17,14 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         db.execSQL("ALTER TABLE pending_events ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+// Отказ загрузки фото (1С временно недоступна и т.п.) раньше проглатывался
+// молча — та же дыра, что была у событий до lastError, только для фото.
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pending_photos ADD COLUMN lastError TEXT")
+        // Существующие строки старше самой миграции — 0 сортирует их как
+        // самые старые, точная дата тут не важна.
+        db.execSQL("ALTER TABLE pending_photos ADD COLUMN enqueuedAt INTEGER NOT NULL DEFAULT 0")
+    }
+}

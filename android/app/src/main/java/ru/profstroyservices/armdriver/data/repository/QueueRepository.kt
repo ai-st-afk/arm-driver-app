@@ -13,6 +13,10 @@ data class QueueState(
     // Причина отказа 1С по конкретному событию (поштучный ответ) —
     // отличается от networkError: тут запрос дошёл, но 1С не приняла.
     val rejectionReason: String? = null,
+    // То же самое, но по фото — отдельный поток от событий (у 1С это
+    // вообще другой эндпоинт), поэтому и причина отдельная. Частый случай —
+    // 1С временно не принимает фото, а события при этом уходят нормально.
+    val photoRejectionReason: String? = null,
     // Запрос вообще не дошёл до шлюза (нет сети, шлюз недоступен и т.п.) —
     // такое не попадает в lastError ни одного события, раньше водитель
     // видел только счётчик без единого объяснения.
@@ -38,11 +42,13 @@ class QueueRepository @Inject constructor(
         events.observeUnsentCount(),
         documents.observePendingCount(),
         events.observeLastRejected().map { it?.lastError },
+        documents.observeLastRejected().map { it?.lastError },
         _networkError
-    ) { unsentEvents, pendingPhotos, rejection, networkError ->
+    ) { unsentEvents, pendingPhotos, eventRejection, photoRejection, networkError ->
         QueueState(
             pendingCount = unsentEvents + pendingPhotos,
-            rejectionReason = rejection,
+            rejectionReason = eventRejection,
+            photoRejectionReason = photoRejection,
             networkError = networkError
         )
     }

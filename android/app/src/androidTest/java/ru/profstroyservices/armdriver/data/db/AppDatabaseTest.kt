@@ -171,6 +171,34 @@ class AppDatabaseTest {
     }
 
     @Test
+    fun rejectedPhotoUploadStaysPendingWithReason() = runBlocking {
+        val dao = db.pendingPhotoDao()
+        val photo = PendingPhotoEntity(
+            id = "d1e2f3a4-5b6c-4d7e-8f9a-0b1c2d3e4f5a",
+            tripId = "cc32f791-f71e-4b93-96c0-88066a0cddef",
+            driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee",
+            assignmentId = "e28a5167-b292-11f1-9835-d85ed35a8f26",
+            filePath = "/data/photos/d1e2f3a4.jpg"
+        )
+        dao.insert(photo)
+
+        // Частый в проде случай: 1С временно не принимает фото (502 от
+        // шлюза) — запись остаётся в очереди, но с объяснением, а не
+        // голой цифрой «не отправлено» без единой причины.
+        dao.markRejected(photo.id, "Сервер временно недоступен. Попробуйте позже.")
+
+        assertEquals(1, dao.getPending().size)
+        assertEquals(
+            "Сервер временно недоступен. Попробуйте позже.",
+            dao.observeLastRejected().first()?.lastError
+        )
+
+        dao.deleteById(photo.id)
+        assertEquals(0, dao.getPending().size)
+        assertNull(dao.observeLastRejected().first())
+    }
+
+    @Test
     fun cacheAndReadAssignment() = runBlocking {
         val driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee"
         val assignment = AssignmentDto(

@@ -15,6 +15,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import ru.profstroyservices.armdriver.data.db.PendingPhotoDao
 import ru.profstroyservices.armdriver.data.db.PendingPhotoEntity
 import ru.profstroyservices.armdriver.data.network.GatewayApi
+import ru.profstroyservices.armdriver.data.network.userMessage
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
@@ -59,6 +60,8 @@ class DocumentRepository @Inject constructor(
 
     fun observePendingCount(): Flow<Int> = dao.observePendingCount()
 
+    fun observeLastRejected(): Flow<PendingPhotoEntity?> = dao.observeLastRejected()
+
     // Пробует отправить все ещё не загруженные фото. Каждое — независимо:
     // одно упавшее не должно блокировать остальные (в очереди могут быть
     // фото с разных ездок/попыток).
@@ -85,8 +88,14 @@ class DocumentRepository @Inject constructor(
                 )
             }.onSuccess {
                 dao.deleteById(photo.id)
+            }.onFailure { error ->
+                // Запись остаётся, подхватится следующим «Повторить» — но
+                // раньше причина здесь терялась молча, водитель видел только
+                // голую цифру «не отправлено». Частый случай — 1С временно
+                // не принимает фото (502 от шлюза), это не наш баг и не
+                // повод трогать сам факт «Разгрузился», уже ушедший отдельно.
+                dao.markRejected(photo.id, error.userMessage())
             }
-            // При ошибке запись остаётся — подхватится следующим «Повторить».
         }
     }
 

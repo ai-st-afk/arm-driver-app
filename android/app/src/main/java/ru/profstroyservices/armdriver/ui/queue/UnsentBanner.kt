@@ -38,10 +38,15 @@ fun UnsentBanner(state: QueueState, onRetry: () -> Unit, modifier: Modifier = Mo
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
-            // networkError важнее: если сейчас нет связи вообще, это и есть
-            // причина, а отказ 1С по прошлой попытке — уже не главное.
-            val reasonText = state.networkError ?: state.rejectionReason?.let { "1С отклонила: $it" }
-            reasonText?.let { text ->
+            // События и фото — разные потоки к 1С (разные эндпоинты), у
+            // каждого своя причина: событие может уйти нормально, а фото в
+            // это же время не приниматься (и наоборот). Обе строки — не
+            // одна, чтобы не потерять любую из них.
+            listOfNotNull(
+                state.networkError,
+                state.rejectionReason?.let { "1С отклонила событие: $it" },
+                state.photoRejectionReason?.let { "Фото: $it" }
+            ).forEach { text ->
                 Text(
                     text = text,
                     style = MaterialTheme.typography.bodySmall,

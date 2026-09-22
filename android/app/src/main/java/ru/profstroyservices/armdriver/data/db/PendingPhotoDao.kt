@@ -19,4 +19,10 @@ interface PendingPhotoDao {
 
     @Query("DELETE FROM pending_photos WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("UPDATE pending_photos SET lastError = :error WHERE id = :id")
+    suspend fun markRejected(id: String, error: String)
+
+    @Query("SELECT * FROM pending_photos WHERE uploaded = 0 AND lastError IS NOT NULL ORDER BY enqueuedAt DESC LIMIT 1")
+    fun observeLastRejected(): Flow<PendingPhotoEntity?>
 }

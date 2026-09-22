@@ -14,5 +14,12 @@ data class PendingPhotoEntity(
     val driverId: String,
     val assignmentId: String,
     val filePath: String,
-    val uploaded: Boolean = false
+    val uploaded: Boolean = false,
+    // Причина последнего отказа — тот же смысл, что lastError у событий
+    // (см. PendingEventEntity). Раньше отказ загрузки фото проглатывался
+    // молча: водитель видел голую цифру «не отправлено» без объяснения.
+    val lastError: String? = null,
+    // id — UUID, по нему «последнее» не определить. Нужно для
+    // observeLastRejected — показывать причину самой свежей попытки.
+    val enqueuedAt: Long = System.currentTimeMillis()
 )
