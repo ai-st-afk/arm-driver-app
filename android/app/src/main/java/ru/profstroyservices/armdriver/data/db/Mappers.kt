@@ -28,6 +28,7 @@ fun PendingEventEntity.toEventRequest(): EventRequest = EventRequest(
 
 fun AssignmentDto.toEntity(driverId: String, updatedAt: Long): CachedAssignmentEntity =
     CachedAssignmentEntity(
+        id = id,
         driverId = driverId,
         assignmentJson = json.encodeToString(AssignmentDto.serializer(), this),
         version = version,

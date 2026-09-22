@@ -32,20 +32,21 @@ curl -i \
   http://127.0.0.1:8080/api/1c/assignments
 ```
 
-4. Проверить JSON для Android:
+4. Проверить JSON-список для Android:
 
 ```bash
 curl -i \
   -H 'X-Auth-Token: dev-mobile' \
-  'http://127.0.0.1:8080/api/mobile/assignments/current?driver_id=3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162'
+  'http://127.0.0.1:8080/api/mobile/assignments?driver_id=3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162'
 ```
 
-5. Проверить исходный XML для сверки с 1С:
+5. Проверить исходный XML для сверки с 1С (id — из ответа шага 3/4 или
+   `docs/samples/assignment.xml`):
 
 ```bash
 curl -i \
   -H 'X-Auth-Token: dev-mobile' \
-  'http://127.0.0.1:8080/api/mobile/assignments/current/xml?driver_id=3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162'
+  'http://127.0.0.1:8080/api/mobile/assignments/b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f/xml'
 ```
 
 6. Отправить событие как будто от Android:

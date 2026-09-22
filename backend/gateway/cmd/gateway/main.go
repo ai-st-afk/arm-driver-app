@@ -49,6 +49,7 @@ func main() {
 	api := httpapi.NewServer(cfg, logger, httpClient, store, pushSender)
 
 	go runDocumentCleanup(logger, store, cfg)
+	go runReminders(api)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
@@ -79,12 +80,25 @@ func main() {
 	}
 }
 
+// runReminders раз в минуту проверяет, не пора ли напомнить водителю, что он
+// не принял разнарядку. Минуты достаточно: сроки тут в десятках минут, а
+// более частый тик просто дёргал бы диск.
+func runReminders(api *httpapi.Server) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		api.SendDueReminders(context.Background(), time.Now().UTC())
+	}
+}
+
 // runDocumentCleanup раз в сутки удаляет фото документов старше срока
 // хранения (см. config.Config.DocumentPendingRetentionDays/DeliveredRetentionDays).
 // Запускается сразу при старте, чтобы не ждать сутки после деплоя.
 func runDocumentCleanup(logger *slog.Logger, store *storage.Store, cfg config.Config) {
 	pendingTTL := time.Duration(cfg.DocumentPendingRetentionDays) * 24 * time.Hour
 	deliveredTTL := time.Duration(cfg.DocumentDeliveredRetentionDays) * 24 * time.Hour
+
+	assignmentTTL := time.Duration(cfg.AssignmentRetentionDays) * 24 * time.Hour
 
 	for {
 		deleted, err := store.CleanupOldDocuments(time.Now(), pendingTTL, deliveredTTL)
@@ -93,6 +107,14 @@ func runDocumentCleanup(logger *slog.Logger, store *storage.Store, cfg config.Co
 		} else if deleted > 0 {
 			logger.Info("document cleanup", "deleted", deleted)
 		}
+
+		assignments, err := store.CleanupOldAssignments(time.Now(), assignmentTTL)
+		if err != nil {
+			logger.Error("assignment cleanup failed", "error", err)
+		} else if assignments > 0 {
+			logger.Info("assignment cleanup", "deleted", assignments)
+		}
+
 		time.Sleep(24 * time.Hour)
 	}
 }

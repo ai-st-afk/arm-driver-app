@@ -89,16 +89,27 @@ func (s *FCMSender) SendAssignment(ctx context.Context, notification AssignmentN
 		return err
 	}
 
+	// Блок notification обязателен вместе с data: только data-сообщение
+	// Android не показывает, если приложение выгружено, а разнарядка в 17:00
+	// приходит именно на выключенный телефон в кармане.
 	payload := map[string]any{
 		"message": map[string]any{
 			"token": device.FCMToken,
+			"notification": map[string]any{
+				"title": notification.Title(),
+				"body":  notification.Body(),
+			},
 			"data": map[string]string{
-				"type":          "assignment_updated",
+				"type":          string(notification.Kind),
 				"assignment_id": notification.AssignmentID,
 				"version":       strconv.Itoa(notification.Version),
 			},
 			"android": map[string]any{
 				"priority": "HIGH",
+				"notification": map[string]any{
+					"channel_id": "assignments",
+					"sound":      "default",
+				},
 			},
 		},
 	}

@@ -79,6 +79,60 @@ class AppDatabaseTest {
     }
 
     @Test
+    fun rejectedEventStaysInQueueWithReason() = runBlocking {
+        val event = PendingEventEntity(
+            id = "c1d2e3f4-5a6b-7c8d-9e0f-1a2b3c4d5e6f",
+            type = "Разгрузился",
+            driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee",
+            assignmentId = "e28a5167-b292-11f1-9835-d85ed35a8f26",
+            tripId = "cc32f791-f71e-4b93-96c0-88066a0cddef",
+            time = "2026-09-21T09:12:00+03:00",
+            comment = ""
+        )
+        val dao = db.pendingEventDao()
+        dao.insert(event)
+
+        dao.markRejected(event.id, "Разгрузка без отметки прибытия на разгрузку")
+
+        // Инвариант 2: отбитое событие из очереди не исчезает, но теперь
+        // рядом с ним лежит причина — её показываем водителю.
+        assertEquals(1, dao.getUnsent().size)
+        assertEquals(
+            "Разгрузка без отметки прибытия на разгрузку",
+            dao.observeLastRejected().first()?.lastError
+        )
+
+        dao.markSent(event.id)
+        assertEquals(0, dao.getUnsent().size)
+        assertNull(dao.observeLastRejected().first())
+    }
+
+    @Test
+    fun undoRemovesOnlyUnsentEvent() = runBlocking {
+        val dao = db.pendingEventDao()
+        val event = PendingEventEntity(
+            id = "7f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f",
+            type = "ПрибылНаПогрузку",
+            driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee",
+            assignmentId = "e28a5167-b292-11f1-9835-d85ed35a8f26",
+            tripId = "cc32f791-f71e-4b93-96c0-88066a0cddef",
+            time = "2026-09-21T06:20:00+03:00",
+            comment = ""
+        )
+        dao.insert(event)
+
+        dao.deleteIfUnsent(event.id)
+        assertEquals(0, dao.observeAll().first().size)
+
+        // Уже отправленное событие отменить нельзя: для 1С это свершившийся
+        // факт, локальное удаление только рассинхронизировало бы прогресс.
+        dao.insert(event)
+        dao.markSent(event.id)
+        dao.deleteIfUnsent(event.id)
+        assertEquals(1, dao.observeAll().first().size)
+    }
+
+    @Test
     fun cacheAndReadAssignment() = runBlocking {
         val driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee"
         val assignment = AssignmentDto(
@@ -92,9 +146,43 @@ class AppDatabaseTest {
         )
 
         db.cachedAssignmentDao().upsert(assignment.toEntity(driverId, updatedAt = 1L))
-        val cached = db.cachedAssignmentDao().getForDriver(driverId)
+        val cached = db.cachedAssignmentDao().getAllForDriver(driverId)
 
-        assertEquals(assignment, cached?.toAssignmentDto())
-        assertNull(db.cachedAssignmentDao().getForDriver("unknown-driver"))
+        assertEquals(1, cached.size)
+        assertEquals(assignment, cached.first().toAssignmentDto())
+        assertEquals(assignment, db.cachedAssignmentDao().getById(assignment.id)?.toAssignmentDto())
+        assertEquals(0, db.cachedAssignmentDao().getAllForDriver("unknown-driver").size)
+    }
+
+    @Test
+    fun cacheMultipleAssignmentsForSameDriver() = runBlocking {
+        val driverId = "1ed61b6b-b61e-4a5f-bcfe-a2a4be252bee"
+        val vehicle = VehicleDto(id = "63a3259d-cc83-11ed-97ef-d85ed35a8f26", plate = "У005РФ43")
+        val driver = PersonDto(id = driverId, name = "Комиссаров Михаил Владимирович")
+        val first = AssignmentDto(
+            id = "e28a5167-b292-11f1-9835-d85ed35a8f26",
+            version = 1,
+            departureDay = "2026-09-14",
+            status = "Активна",
+            driver = driver,
+            vehicle = vehicle
+        )
+        val second = AssignmentDto(
+            id = "a1b2c3d4-1111-2222-3333-444455556666",
+            version = 1,
+            departureDay = "2026-09-14",
+            status = "Активна",
+            driver = driver,
+            vehicle = vehicle
+        )
+
+        db.cachedAssignmentDao().upsert(first.toEntity(driverId, updatedAt = 1L))
+        db.cachedAssignmentDao().upsert(second.toEntity(driverId, updatedAt = 2L))
+
+        // Раньше вторая упаковка затёрла бы первую (первичный ключ был
+        // driverId) — теперь ключ по id разнарядки, обе остаются.
+        val cached = db.cachedAssignmentDao().getAllForDriver(driverId)
+        assertEquals(2, cached.size)
+        assertEquals(setOf(first.id, second.id), cached.map { it.id }.toSet())
     }
 }

@@ -27,8 +27,8 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 33
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -41,6 +41,13 @@ android {
             "String",
             "GATEWAY_MOBILE_TOKEN",
             "\"${localProperty("gateway.mobileToken", "")}\""
+        )
+        // Номера диспетчера в контракте с 1С нет, поэтому он приходит из
+        // конфигурации сборки. Пусто — кнопка звонка просто не показывается.
+        buildConfigField(
+            "String",
+            "DISPATCHER_PHONE",
+            "\"${localProperty("dispatcher.phone", "")}\""
         )
     }
 
@@ -70,6 +77,7 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
     implementation(libs.activity.compose)
 
     implementation(platform(libs.compose.bom))
@@ -77,6 +85,7 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
     debugImplementation(libs.compose.ui.tooling)
 
     implementation(libs.navigation.compose)

@@ -24,6 +24,23 @@ type Config struct {
 	// эта цифра), 7 дней после подтверждения.
 	DocumentPendingRetentionDays   int
 	DocumentDeliveredRetentionDays int
+
+	// За сколько часов назад показывать разнарядки водителю в списке
+	// GET /api/mobile/assignments. Не календарная дата — инвариант "разнарядка
+	// доступна с вечера" означает, что "завтрашняя" разнарядка легитимно
+	// приходит вечером текущего дня. 48 часов покрывает "с вечера" плюс
+	// весь день; если окно окажется не тем — меняется одной переменной.
+	AssignmentListWindowHours int
+
+	// Через сколько минут после прихода разнарядки напоминать водителю, что
+	// он её ещё не принял. У него час на приём (дальше диспетчер звонит
+	// вручную), поэтому 30 минут — половина срока, 50 — «осталось 10 минут».
+	AssignmentReminderFirstMinutes  int
+	AssignmentReminderSecondMinutes int
+
+	// Сколько держать XML разнарядок в delivery-cache. История разнарядок
+	// живёт в 1С, у нас это только доставка на телефон.
+	AssignmentRetentionDays int
 }
 
 func FromEnv() Config {
@@ -43,6 +60,13 @@ func FromEnv() Config {
 
 		DocumentPendingRetentionDays:   envInt("DOCUMENT_PENDING_RETENTION_DAYS", 90),
 		DocumentDeliveredRetentionDays: envInt("DOCUMENT_DELIVERED_RETENTION_DAYS", 7),
+
+		AssignmentListWindowHours: envInt("ASSIGNMENT_LIST_WINDOW_HOURS", 48),
+
+		AssignmentReminderFirstMinutes:  envInt("ASSIGNMENT_REMINDER_FIRST_MINUTES", 30),
+		AssignmentReminderSecondMinutes: envInt("ASSIGNMENT_REMINDER_SECOND_MINUTES", 50),
+
+		AssignmentRetentionDays: envInt("ASSIGNMENT_RETENTION_DAYS", 30),
 	}
 }
 

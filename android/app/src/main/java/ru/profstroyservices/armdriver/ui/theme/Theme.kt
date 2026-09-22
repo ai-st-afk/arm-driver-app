@@ -18,7 +18,11 @@ import androidx.compose.ui.unit.sp
 // которые с этим брендом не совпадают.
 private val Accent = Color(0xFFE86C2F)
 private val TextDark = Color(0xFF1F2228)
-private val TextMuted = Color(0xFF6B7280)
+
+// Второстепенный текст специально темнее обычного «серого для подписей»:
+// им набраны статусы смены и «не отправлено», а экран читают на солнце и
+// в тряске. Прежний #6B7280 по контрасту проходил впритык.
+private val TextMuted = Color(0xFF4B5563)
 private val BorderLight = Color(0xFFEAEAEA)
 
 private val LightColors = lightColorScheme(
@@ -63,7 +67,7 @@ private val AppTypography = Typography().let { base ->
         titleMedium = base.titleMedium.copy(fontSize = 21.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
         bodyLarge = base.bodyLarge.copy(fontSize = 19.sp, lineHeight = 24.sp),
         bodyMedium = base.bodyMedium.copy(fontSize = 17.sp, lineHeight = 22.sp),
-        bodySmall = base.bodySmall.copy(fontSize = 14.sp, lineHeight = 19.sp, color = TextMuted),
+        bodySmall = base.bodySmall.copy(fontSize = 16.sp, lineHeight = 21.sp, color = TextMuted),
         labelLarge = base.labelLarge.copy(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
     )
 }
@@ -76,3 +80,14 @@ fun ArmDriverTheme(
     val colorScheme = if (darkTheme) DarkColors else LightColors
     MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
 }
+
+// Статус ездки в roadmap: активная — зелёная, остальные серые. Цвет никогда
+// не остаётся единственным признаком (рядом всегда слово), иначе на солнце
+// и при дальтонизме разница пропадает.
+@Composable
+fun statusActiveColor(): Color =
+    if (isSystemInDarkTheme()) Color(0xFF6FD98F) else Color(0xFF1B7A3A)
+
+@Composable
+fun statusActiveContainer(): Color =
+    if (isSystemInDarkTheme()) Color(0xFF14331F) else Color(0xFFE3F5E9)

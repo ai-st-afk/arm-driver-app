@@ -12,8 +12,8 @@ import retrofit2.http.Query
 
 interface GatewayApi {
 
-    @GET("api/mobile/assignments/current")
-    suspend fun getCurrentAssignment(@Query("driver_id") driverId: String): AssignmentDto
+    @GET("api/mobile/assignments")
+    suspend fun getAssignments(@Query("driver_id") driverId: String): AssignmentsListResponse
 
     @GET("api/mobile/assignments/{id}")
     suspend fun getAssignment(@Path("id") id: String): AssignmentDto

@@ -27,6 +27,13 @@ import (
 const maxXMLBody = 4 << 20
 const maxDocumentBody = 12 << 20
 
+// Значение <Статус> из контракта 1С. Пустой список ездок отменой не
+// считается — только явный статус (инвариант 4 из AGENTS.md).
+const statusCancelled = "Отменена"
+
+// Тип события, по которому гасим напоминания: водитель принял разнарядку.
+const eventTypeAcknowledged = "Ознакомление"
+
 type Server struct {
 	cfg    config.Config
 	logger *slog.Logger
@@ -45,8 +52,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("POST /api/1c/assignments", s.receiveAssignment)
 	mux.HandleFunc("POST /api/mobile/devices", s.registerDevice)
-	mux.HandleFunc("GET /api/mobile/assignments/current", s.currentAssignment)
-	mux.HandleFunc("GET /api/mobile/assignments/current/xml", s.currentAssignmentXML)
+	mux.HandleFunc("GET /api/mobile/assignments", s.listAssignments)
 	mux.HandleFunc("GET /api/mobile/assignments/{id}/xml", s.assignmentByIDXML)
 	mux.HandleFunc("GET /api/mobile/assignments/{id}", s.assignmentByID)
 	mux.HandleFunc("POST /api/mobile/events", s.receiveEvents)
@@ -90,6 +96,15 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Существование проверяем ДО сохранения: после SaveAssignment это будет
+	// уже не различить. 1С подтвердила, что правка одной ездки (в том числе
+	// её отмена) приходит повторной отправкой всей разнарядки той же
+	// <Идентификатор> с новой версией — это не новая задача для водителя,
+	// а правка уже показанной. Без этого различия любая правка после приёма
+	// заново запускала бы напоминания «не принята», хотя водитель её принял.
+	_, _, existsErr := s.store.GetAssignment(assignment.ID)
+	isNewAssignment := errors.Is(existsErr, storage.ErrNotFound)
+
 	meta, saved, err := s.store.SaveAssignment(assignment.ID, assignment.Version, assignment.Driver.ID, body)
 	if err != nil {
 		s.logger.ErrorContext(r.Context(), "assignment save failed", "error", err)
@@ -108,7 +123,32 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Отменённая разнарядка (в том числе переданная другому водителю) —
+	// это не «новая», а предупреждение, и напоминать по ней больше нечего.
+	cancelled := strings.EqualFold(assignment.Status, statusCancelled)
+	kind := push.KindUpdated
+	switch {
+	case cancelled:
+		kind = push.KindCancelled
+	case isNewAssignment:
+		kind = push.KindNew
+	}
+
+	switch {
+	case cancelled:
+		if err := s.store.CancelReminders(assignment.ID); err != nil {
+			s.logger.ErrorContext(r.Context(), "cancel reminders failed", "error", err, "assignment", assignment.ID)
+		}
+	case isNewAssignment:
+		// Ревизию уже известной разнарядки напоминаниями не трогаем: если
+		// водитель её принял, CancelReminders уже снял их при приёме, и
+		// заново заводить клок «не принята» здесь нельзя. Если ещё не принял —
+		// исходные напоминания от первой версии продолжают тикать как есть.
+		s.scheduleReminders(r.Context(), assignment)
+	}
+
 	if err := s.push.SendAssignment(r.Context(), push.AssignmentNotification{
+		Kind:         kind,
 		AssignmentID: assignment.ID,
 		Version:      assignment.Version,
 		DriverID:     assignment.Driver.ID,
@@ -127,6 +167,66 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 		"trips", len(assignment.Trips),
 	)
 	writeXML(w, http.StatusOK, resultXML{Status: "ok"})
+}
+
+func (s *Server) scheduleReminders(ctx context.Context, assignment assignmentXML) {
+	now := time.Now().UTC()
+	reminders := []storage.Reminder{
+		{
+			AssignmentID: assignment.ID,
+			DriverID:     assignment.Driver.ID,
+			Version:      assignment.Version,
+			Kind:         string(push.KindReminder30),
+			DueAt:        now.Add(time.Duration(s.cfg.AssignmentReminderFirstMinutes) * time.Minute),
+		},
+		{
+			AssignmentID: assignment.ID,
+			DriverID:     assignment.Driver.ID,
+			Version:      assignment.Version,
+			Kind:         string(push.KindReminder10),
+			DueAt:        now.Add(time.Duration(s.cfg.AssignmentReminderSecondMinutes) * time.Minute),
+		},
+	}
+	if err := s.store.ScheduleReminders(reminders); err != nil {
+		// Разнарядка уже сохранена и доставлена — напоминания не повод
+		// валить приём, но молчать об ошибке нельзя.
+		s.logger.ErrorContext(ctx, "schedule reminders failed", "error", err, "assignment", assignment.ID)
+	}
+}
+
+// SendDueReminders вызывается фоновым воркером раз в минуту: шлёт
+// напоминания, которым пора, и забывает их.
+func (s *Server) SendDueReminders(ctx context.Context, now time.Time) {
+	due, err := s.store.DueReminders(now)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "read due reminders failed", "error", err)
+		return
+	}
+	for _, reminder := range due {
+		err := s.push.SendAssignment(ctx, push.AssignmentNotification{
+			Kind:         push.Kind(reminder.Kind),
+			AssignmentID: reminder.AssignmentID,
+			Version:      reminder.Version,
+			DriverID:     reminder.DriverID,
+		})
+		if err != nil {
+			s.logger.ErrorContext(
+				ctx,
+				"reminder push failed",
+				"error", err,
+				"assignment", reminder.AssignmentID,
+				"kind", reminder.Kind,
+			)
+			continue
+		}
+		s.logger.InfoContext(
+			ctx,
+			"reminder sent",
+			"assignment", reminder.AssignmentID,
+			"driver", reminder.DriverID,
+			"kind", reminder.Kind,
+		)
+	}
 }
 
 func (s *Server) registerDevice(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +250,11 @@ func (s *Server) registerDevice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) currentAssignment(w http.ResponseWriter, r *http.Request) {
+// listAssignments отдаёт разнарядки водителя за последние
+// cfg.AssignmentListWindowHours часов, свежие первыми. Заменяет прежний
+// "current" (одна последняя разнарядка на водителя) — за день у водителя
+// может быть несколько разнарядок, и старая не должна прятаться за новой.
+func (s *Server) listAssignments(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizedMobile(r) {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "неверный X-Auth-Token")
 		return
@@ -161,21 +265,29 @@ func (s *Server) currentAssignment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, _, err := s.store.GetLatestAssignmentForDriver(driverID)
+	since := time.Now().UTC().Add(-time.Duration(s.cfg.AssignmentListWindowHours) * time.Hour)
+	metas, err := s.store.ListAssignmentsForDriver(driverID, since)
 	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			writeJSONError(w, http.StatusNotFound, "not_found", "разнарядка не найдена")
+		s.logger.ErrorContext(r.Context(), "assignment list read failed", "error", err, "driver", driverID)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось прочитать разнарядки")
+		return
+	}
+
+	assignments := make([]assignmentResponse, 0, len(metas))
+	for _, meta := range metas {
+		raw, _, err := s.store.GetAssignment(meta.ID)
+		if err != nil {
+			s.logger.ErrorContext(r.Context(), "assignment content read failed", "error", err, "assignment", meta.ID)
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось прочитать разнарядку")
 			return
 		}
-		s.logger.ErrorContext(r.Context(), "assignment read failed", "error", err, "driver", driverID)
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось прочитать разнарядку")
-		return
+		assignment, ok := parseStoredAssignmentJSON(w, raw)
+		if !ok {
+			return
+		}
+		assignments = append(assignments, assignmentToResponse(assignment))
 	}
-	assignment, ok := parseStoredAssignmentJSON(w, raw)
-	if !ok {
-		return
-	}
-	writeJSON(w, http.StatusOK, assignmentToResponse(assignment))
+	writeJSON(w, http.StatusOK, assignmentsListResponse{Assignments: assignments})
 }
 
 func (s *Server) assignmentByID(w http.ResponseWriter, r *http.Request) {
@@ -204,30 +316,6 @@ func (s *Server) assignmentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, assignmentToResponse(assignment))
-}
-
-func (s *Server) currentAssignmentXML(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizedMobile(r) {
-		writeXMLError(w, http.StatusUnauthorized, "неверный X-Auth-Token")
-		return
-	}
-	driverID := r.URL.Query().Get("driver_id")
-	if driverID == "" {
-		writeXMLError(w, http.StatusBadRequest, "обязателен query-параметр driver_id")
-		return
-	}
-
-	raw, meta, err := s.store.GetLatestAssignmentForDriver(driverID)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			writeXMLError(w, http.StatusNotFound, "разнарядка не найдена")
-			return
-		}
-		s.logger.ErrorContext(r.Context(), "assignment read failed", "error", err, "driver", driverID)
-		writeXMLError(w, http.StatusInternalServerError, "не удалось прочитать разнарядку")
-		return
-	}
-	writeRawXML(w, http.StatusOK, raw, meta)
 }
 
 func (s *Server) assignmentByIDXML(w http.ResponseWriter, r *http.Request) {
@@ -294,6 +382,24 @@ func (s *Server) receiveEvents(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadGateway, "bad_one_c_response", "1С вернула некорректный XML-ответ")
 		return
 	}
+
+	// Водитель принял разнарядку — напоминать больше не о чем. Смотрим на
+	// принятые 1С события, а не на сам факт запроса: отбитое событие
+	// приёмом не считается.
+	accepted := map[string]bool{}
+	for _, event := range result.Events {
+		if strings.EqualFold(event.Accepted, "true") {
+			accepted[event.ID] = true
+		}
+	}
+	for _, event := range req.Events {
+		if event.Type == eventTypeAcknowledged && accepted[event.ID] {
+			if err := s.store.CancelReminders(event.AssignmentID); err != nil {
+				s.logger.ErrorContext(r.Context(), "cancel reminders failed", "error", err, "assignment", event.AssignmentID)
+			}
+		}
+	}
+
 	writeJSON(w, statusCode, resultXMLToJSON(result))
 }
 

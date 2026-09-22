@@ -71,6 +71,11 @@ data class AssignmentDto(
 )
 
 @Serializable
+data class AssignmentsListResponse(
+    val assignments: List<AssignmentDto> = emptyList()
+)
+
+@Serializable
 data class DeviceRequest(
     @SerialName("driver_id") val driverId: String,
     @SerialName("device_id") val deviceId: String,

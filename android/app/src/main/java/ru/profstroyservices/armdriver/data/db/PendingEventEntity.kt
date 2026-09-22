@@ -16,5 +16,8 @@ data class PendingEventEntity(
     val tripId: String?,
     val time: String,
     val comment: String,
-    val sent: Boolean = false
+    val sent: Boolean = false,
+    // Текст отказа 1С по этому событию (поштучный ответ, инвариант 2).
+    // Водителю без него видно только «не отправлено», а не что чинить.
+    val lastError: String? = null
 )

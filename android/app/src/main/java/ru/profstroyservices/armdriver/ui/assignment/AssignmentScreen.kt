@@ -23,18 +23,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import ru.profstroyservices.armdriver.R
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
 import ru.profstroyservices.armdriver.ui.components.LabeledField
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-private val ButtonHeight = 56.dp
+// По этим кнопкам бьют в перчатках и в тряске — они крупнее обычных.
+private val ButtonHeight = 64.dp
 
 @Composable
-fun AssignmentScreen(
-    onOpenRoadmap: () -> Unit,
-    viewModel: AssignmentViewModel = hiltViewModel()
-) {
+fun AssignmentScreen(viewModel: AssignmentViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Scaffold { innerPadding ->
         Column(
@@ -63,8 +68,8 @@ fun AssignmentScreen(
                 is AssignmentUiState.Content -> AssignmentContent(
                     state = state,
                     onAcknowledge = viewModel::onAcknowledge,
-                    onStartShift = { viewModel.onStartShift(onOpenRoadmap) },
-                    onOpenRoadmap = onOpenRoadmap
+                    onStartShift = viewModel::onStartShift,
+                    onEndShift = viewModel::onEndShift
                 )
             }
         }
@@ -92,7 +97,7 @@ private fun AssignmentContent(
     state: AssignmentUiState.Content,
     onAcknowledge: () -> Unit,
     onStartShift: () -> Unit,
-    onOpenRoadmap: () -> Unit
+    onEndShift: () -> Unit
 ) {
     val assignment: AssignmentDto = state.assignment
 
@@ -108,7 +113,15 @@ private fun AssignmentContent(
             label = "Машина",
             value = "${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim()
         )
-        LabeledField(label = "Ездок в разнарядке", value = assignment.trips.size.toString())
+        LabeledField(label = "Ездок на смену", value = assignment.trips.size.toString())
+        LabeledField(label = "Статус смены", value = shiftStatusLabel(state))
+    }
+
+    state.updatedAt?.let { updatedAt ->
+        Text(
+            text = "Обновлено в ${formatUpdatedAt(updatedAt)}",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 
     Button(
@@ -116,7 +129,12 @@ private fun AssignmentContent(
         enabled = !state.acknowledged,
         modifier = Modifier.fillMaxWidth().height(ButtonHeight)
     ) {
-        Text(if (state.acknowledged) "Ознакомлен" else "Ознакомлен?", style = MaterialTheme.typography.labelLarge)
+        // Подпись — «принял», потому что для диспетчера это и есть приём
+        // разнарядки. Тип события в контракте с 1С остаётся `Ознакомление`.
+        Text(
+            if (state.acknowledged) "Разнарядка принята" else "Ознакомился и принял",
+            style = MaterialTheme.typography.labelLarge
+        )
     }
 
     Button(
@@ -130,10 +148,31 @@ private fun AssignmentContent(
 
     if (state.shiftStarted) {
         Button(
-            onClick = onOpenRoadmap,
+            onClick = onEndShift,
+            enabled = !state.shiftEnded,
             modifier = Modifier.fillMaxWidth().height(ButtonHeight)
         ) {
-            Text("К списку ездок", style = MaterialTheme.typography.labelLarge)
+            Text(
+                if (state.shiftEnded) "Смена завершена" else "Закончить смену",
+                style = MaterialTheme.typography.labelLarge
+            )
+        }
+
+        if (!state.shiftEnded) {
+            Text(
+                text = "Ездки — во вкладке «Мои ездки».",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
+}
+
+private fun formatUpdatedAt(millis: Long): String =
+    SimpleDateFormat("HH:mm", Locale("ru")).format(Date(millis))
+
+private fun shiftStatusLabel(state: AssignmentUiState.Content): String = when {
+    state.shiftEnded -> "смена завершена"
+    state.shiftStarted -> "смена идёт"
+    state.acknowledged -> "ознакомлен"
+    else -> "не ознакомлен"
 }

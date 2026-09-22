@@ -22,20 +22,29 @@ class EventQueueRepository @Inject constructor(
 
     fun observeUnsentCount(): Flow<Int> = dao.observeUnsentCount()
 
+    // Для таба «История» — полный локальный лог, включая уже отправленные
+    // события (sent=1 не удаляется, см. markSent).
+    fun observeAll(): Flow<List<PendingEventEntity>> = dao.observeAll()
+
+    fun observeLastRejected(): Flow<PendingEventEntity?> = dao.observeLastRejected()
+
     // GUID генерируется на телефоне в момент события (инвариант из AGENTS.md),
     // не при последующей отправке. Повторный вызов для уже записанного
     // события (assignmentId+type+tripId) не создаёт второй GUID.
+    // Возвращает id созданного события или null, если такое уже записано —
+    // по нему потом можно отменить действие, пока оно не ушло.
     suspend fun enqueue(
         type: String,
         driverId: String,
         assignmentId: String,
         tripId: String? = null,
         comment: String = ""
-    ) {
-        if (dao.exists(assignmentId, type, tripId)) return
+    ): String? {
+        if (dao.exists(assignmentId, type, tripId)) return null
+        val id = UUID.randomUUID().toString()
         dao.insert(
             PendingEventEntity(
-                id = UUID.randomUUID().toString(),
+                id = id,
                 type = type,
                 driverId = driverId,
                 assignmentId = assignmentId,
@@ -44,7 +53,10 @@ class EventQueueRepository @Inject constructor(
                 comment = comment
             )
         )
+        return id
     }
+
+    suspend fun cancelPending(id: String) = dao.deleteIfUnsent(id)
 
     // Инвариант 2 из AGENTS.md: помечаем отправленными только accepted:true,
     // поштучно. Если весь запрос упал (сети нет, gateway недоступен, ONE_C
@@ -56,6 +68,14 @@ class EventQueueRepository @Inject constructor(
         if (unsent.isEmpty()) return
 
         val response = api.sendEvents(EventsRequest(events = unsent.map { it.toEventRequest() }))
-        response.events.filter { it.accepted }.forEach { dao.markSent(it.id) }
+        for (result in response.events) {
+            if (result.accepted) {
+                dao.markSent(result.id)
+            } else {
+                // Причину отказа 1С присылает вместе с ответом — раньше мы её
+                // выбрасывали, и водитель видел только счётчик «не отправлено».
+                dao.markRejected(result.id, result.error ?: "1С не приняла событие")
+            }
+        }
     }
 }

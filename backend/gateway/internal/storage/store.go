@@ -3,9 +3,9 @@ package storage
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -30,9 +30,21 @@ type Device struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Reminder — отложенный пуш «разнарядка не принята». 1С присылает разнарядку
+// один раз и больше не звонит, а напомнить надо через 30 и 50 минут, поэтому
+// расписание держит шлюз. Это не бизнес-истина, а доставка уведомлений —
+// та же зона ответственности, что и сам push.
+type Reminder struct {
+	AssignmentID string    `json:"assignment_id"`
+	DriverID     string    `json:"driver_id"`
+	Version      int       `json:"version"`
+	Kind         string    `json:"kind"`
+	DueAt        time.Time `json:"due_at"`
+}
+
 type indexFile struct {
-	Assignments    map[string]AssignmentMeta `json:"assignments"`
-	LatestByDriver map[string]string         `json:"latest_by_driver"`
+	Assignments map[string]AssignmentMeta `json:"assignments"`
+	Reminders   map[string]Reminder       `json:"reminders"`
 }
 
 // DocumentMeta — фото подписанного документа с разгрузки. Это тоже
@@ -62,8 +74,8 @@ func New(dir string) (*Store, error) {
 	}
 	store := &Store{dir: dir}
 	if err := store.ensureJSON("index.json", indexFile{
-		Assignments:    map[string]AssignmentMeta{},
-		LatestByDriver: map[string]string{},
+		Assignments: map[string]AssignmentMeta{},
+		Reminders:   map[string]Reminder{},
 	}); err != nil {
 		return nil, err
 	}
@@ -104,11 +116,33 @@ func (s *Store) SaveAssignment(id string, version int, driverID string, raw []by
 		return AssignmentMeta{}, false, err
 	}
 	idx.Assignments[id] = meta
-	idx.LatestByDriver[driverID] = id
 	if err := s.saveIndex(idx); err != nil {
 		return AssignmentMeta{}, false, err
 	}
 	return meta, true, nil
+}
+
+// ListAssignmentsForDriver возвращает разнарядки водителя, полученные не
+// раньше since, свежие первыми. idx.Assignments и так хранит всё бессрочно
+// (по id) — здесь просто фильтрация без изменения хранения; окно "since"
+// задаёт вызывающий код (см. config.AssignmentListWindowHours).
+func (s *Store) ListAssignmentsForDriver(driverID string, since time.Time) ([]AssignmentMeta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadIndex()
+	if err != nil {
+		return nil, err
+	}
+
+	var metas []AssignmentMeta
+	for _, meta := range idx.Assignments {
+		if meta.DriverID == driverID && !meta.ReceivedAt.Before(since) {
+			metas = append(metas, meta)
+		}
+	}
+	sort.Slice(metas, func(i, j int) bool { return metas[i].ReceivedAt.After(metas[j].ReceivedAt) })
+	return metas, nil
 }
 
 func (s *Store) GetAssignment(id string) ([]byte, AssignmentMeta, error) {
@@ -130,27 +164,73 @@ func (s *Store) GetAssignment(id string) ([]byte, AssignmentMeta, error) {
 	return raw, meta, nil
 }
 
-func (s *Store) GetLatestAssignmentForDriver(driverID string) ([]byte, AssignmentMeta, error) {
+func reminderKey(assignmentID, kind string) string { return assignmentID + ":" + kind }
+
+// ScheduleReminders переписывает расписание напоминаний по разнарядке.
+// Повторный приём той же разнарядки (новая версия) отсчёт начинает заново —
+// новую версию водитель должен посмотреть и принять так же, как первую.
+func (s *Store) ScheduleReminders(reminders []Reminder) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	idx, err := s.loadIndex()
 	if err != nil {
-		return nil, AssignmentMeta{}, err
+		return err
 	}
-	id, ok := idx.LatestByDriver[driverID]
-	if !ok {
-		return nil, AssignmentMeta{}, ErrNotFound
+	for _, reminder := range reminders {
+		idx.Reminders[reminderKey(reminder.AssignmentID, reminder.Kind)] = reminder
 	}
-	meta, ok := idx.Assignments[id]
-	if !ok {
-		return nil, AssignmentMeta{}, fmt.Errorf("latest assignment index points to missing assignment %s", id)
-	}
-	raw, err := os.ReadFile(filepath.Join(s.dir, meta.ContentPath))
+	return s.saveIndex(idx)
+}
+
+// DueReminders отдаёт напоминания, которым пора сработать, и сразу убирает
+// их из расписания: пуш отправляется ровно один раз, повтор при перезапуске
+// контейнера был бы хуже пропуска.
+func (s *Store) DueReminders(now time.Time) ([]Reminder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadIndex()
 	if err != nil {
-		return nil, AssignmentMeta{}, err
+		return nil, err
 	}
-	return raw, meta, nil
+
+	var due []Reminder
+	for key, reminder := range idx.Reminders {
+		if !reminder.DueAt.After(now) {
+			due = append(due, reminder)
+			delete(idx.Reminders, key)
+		}
+	}
+	if len(due) == 0 {
+		return nil, nil
+	}
+	sort.Slice(due, func(i, j int) bool { return due[i].DueAt.Before(due[j].DueAt) })
+	return due, s.saveIndex(idx)
+}
+
+// CancelReminders вызывается, когда напоминать уже незачем: водитель принял
+// разнарядку или её отменили.
+func (s *Store) CancelReminders(assignmentID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+
+	removed := false
+	for key, reminder := range idx.Reminders {
+		if reminder.AssignmentID == assignmentID {
+			delete(idx.Reminders, key)
+			removed = true
+		}
+	}
+	if !removed {
+		return nil
+	}
+	return s.saveIndex(idx)
 }
 
 func (s *Store) SaveDevice(device Device) error {
@@ -276,6 +356,40 @@ func (s *Store) GetDocument(id string) (DocumentMeta, error) {
 	return meta, nil
 }
 
+// CleanupOldAssignments удаляет разнарядки, полученные раньше ttl. Это
+// технический delivery-cache, а не архив: история живёт в 1С, а у нас файлы
+// копились бы вечно. Заодно чистятся их напоминания, если такие остались.
+func (s *Store) CleanupOldAssignments(now time.Time, ttl time.Duration) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadIndex()
+	if err != nil {
+		return 0, err
+	}
+
+	deleted := 0
+	for id, meta := range idx.Assignments {
+		if now.Sub(meta.ReceivedAt) <= ttl {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.dir, meta.ContentPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return deleted, err
+		}
+		delete(idx.Assignments, id)
+		for key, reminder := range idx.Reminders {
+			if reminder.AssignmentID == id {
+				delete(idx.Reminders, key)
+			}
+		}
+		deleted++
+	}
+	if deleted == 0 {
+		return 0, nil
+	}
+	return deleted, s.saveIndex(idx)
+}
+
 // CleanupOldDocuments удаляет фото старше срока хранения: pendingTTL — для
 // тех, что ещё не подтверждены доставленными в 1С (DeliveredAt пуст, на
 // сегодня это все — доставка в 1С ещё не реализована), deliveredTTL — для
@@ -332,8 +446,8 @@ func (s *Store) loadIndex() (indexFile, error) {
 	if idx.Assignments == nil {
 		idx.Assignments = map[string]AssignmentMeta{}
 	}
-	if idx.LatestByDriver == nil {
-		idx.LatestByDriver = map[string]string{}
+	if idx.Reminders == nil {
+		idx.Reminders = map[string]Reminder{}
 	}
 	return idx, nil
 }

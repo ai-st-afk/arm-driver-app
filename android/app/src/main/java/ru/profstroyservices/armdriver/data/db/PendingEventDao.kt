@@ -21,13 +21,27 @@ interface PendingEventDao {
     @Query("DELETE FROM pending_events WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    // Отмена действия водителем в течение нескольких секунд после нажатия.
+    // Условие sent = 0 обязательно: если событие уже ушло и принято 1С,
+    // «отменять» локально нечего — там оно уже факт.
+    @Query("DELETE FROM pending_events WHERE id = :id AND sent = 0")
+    suspend fun deleteIfUnsent(id: String)
+
     // Не удаляем принятые события: doneTypes/acknowledged/shiftStarted
     // читают эту же таблицу целиком (см. observeForAssignment), чтобы
     // понять, что действие уже случилось. Удаление тут же "забыло" бы
     // прогресс и открыло кнопку заново — повторное нажатие родило бы
     // новый GUID для уже отправленного события.
-    @Query("UPDATE pending_events SET sent = 1 WHERE id = :id")
+    @Query("UPDATE pending_events SET sent = 1, lastError = NULL WHERE id = :id")
     suspend fun markSent(id: String)
+
+    // Отбитое 1С событие остаётся в очереди (инвариант 2), но теперь с
+    // причиной — её показываем водителю, иначе он видит только счётчик.
+    @Query("UPDATE pending_events SET lastError = :error WHERE id = :id")
+    suspend fun markRejected(id: String, error: String)
+
+    @Query("SELECT * FROM pending_events WHERE sent = 0 AND lastError IS NOT NULL ORDER BY time DESC LIMIT 1")
+    fun observeLastRejected(): Flow<PendingEventEntity?>
 
     @Query("SELECT COUNT(*) FROM pending_events WHERE sent = 0")
     fun observeUnsentCount(): Flow<Int>

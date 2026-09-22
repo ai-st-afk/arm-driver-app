@@ -3,3 +3,7 @@
 
 gateway.baseUrl=https://arm-driver.profstroy-services.ru/
 gateway.mobileToken=REPLACE_ME
+
+# Номер диспетчера для кнопки «Позвонить диспетчеру».
+# Пусто — кнопка не показывается.
+dispatcher.phone=

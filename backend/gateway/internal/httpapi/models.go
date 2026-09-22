@@ -98,6 +98,10 @@ type photoResultXML struct {
 	Error   string   `xml:"ошибка,attr,omitempty"`
 }
 
+type assignmentsListResponse struct {
+	Assignments []assignmentResponse `json:"assignments"`
+}
+
 type deviceXML struct {
 	XMLName  xml.Name `xml:"Устройство"`
 	DriverID string   `xml:"Водитель"`

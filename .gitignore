@@ -8,6 +8,7 @@ __pycache__/
 android/local.properties
 android/**/build/
 android/.gradle/
+android/.kotlin/
 android/.idea/
 android/*.iml
 android/app/google-services.json

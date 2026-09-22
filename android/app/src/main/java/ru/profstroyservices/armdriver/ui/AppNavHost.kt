@@ -1,31 +1,44 @@
 package ru.profstroyservices.armdriver.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import ru.profstroyservices.armdriver.ui.assignment.AssignmentScreen
-import ru.profstroyservices.armdriver.ui.roadmap.RoadmapScreen
-import ru.profstroyservices.armdriver.ui.setup.SetupScreen
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
+import ru.profstroyservices.armdriver.ui.settings.NotConfiguredScreen
 
-private object Routes {
-    const val SETUP = "setup"
-    const val ASSIGNMENT = "assignment"
-    const val ROADMAP = "roadmap"
+// Верхний уровень решает ровно один вопрос: привязан телефон к водителю или
+// нет. Привязан — сразу таб-бар, вся остальная навигация внутри MainScaffold.
+// Не привязан — заглушка без полей ввода: настраивает телефон тот, кто его
+// выдаёт, а не водитель.
+@Composable
+fun AppNavHost(viewModel: AppNavViewModel = hiltViewModel()) {
+    when (val state = viewModel.state.collectAsState().value) {
+        is AppNavUiState.Loading -> LoadingGate()
+        is AppNavUiState.Ready -> if (state.hasDriverId) {
+            MainScaffold()
+        } else {
+            NotConfiguredScreen()
+        }
+    }
 }
 
 @Composable
-fun AppNavHost(navController: NavHostController = rememberNavController()) {
-    NavHost(navController = navController, startDestination = Routes.SETUP) {
-        composable(Routes.SETUP) {
-            SetupScreen(onContinue = { navController.navigate(Routes.ASSIGNMENT) })
-        }
-        composable(Routes.ASSIGNMENT) {
-            AssignmentScreen(onOpenRoadmap = { navController.navigate(Routes.ROADMAP) })
-        }
-        composable(Routes.ROADMAP) {
-            RoadmapScreen()
+private fun LoadingGate() {
+    Scaffold { innerPadding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            CircularProgressIndicator()
         }
     }
 }

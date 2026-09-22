@@ -1,15 +1,18 @@
 package ru.profstroyservices.armdriver.ui.roadmap
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
 import ru.profstroyservices.armdriver.data.network.TripDto
@@ -17,11 +20,30 @@ import ru.profstroyservices.armdriver.data.repository.AssignmentRepository
 import ru.profstroyservices.armdriver.data.repository.DocumentRepository
 import ru.profstroyservices.armdriver.data.repository.EventQueueRepository
 import ru.profstroyservices.armdriver.data.repository.EventTypes
+import ru.profstroyservices.armdriver.data.repository.QueueRepository
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import java.io.File
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 private const val STATUS_CANCELLED = "Отменена"
+
+// Сколько водитель может передумать после нажатия. Дольше держать нельзя:
+// событие должно уехать в 1С как можно раньше, от него зависит выпуск машины.
+private const val UNDO_WINDOW_MILLIS = 5_000L
+
+private val eventTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+private fun formatEventTime(): String = OffsetDateTime.now().format(eventTimeFormatter)
+
+private fun actionFeedbackText(type: String): String = when (type) {
+    EventTypes.PRIBYL_NA_POGRUZKU -> "Прибыл на погрузку"
+    EventTypes.ZAGRUZILSYA_V_PUT -> "Загрузился, в пути"
+    EventTypes.PRIBYL_NA_RAZGRUZKU -> "Прибыл на разгрузку"
+    EventTypes.RAZGRUZILSYA -> "Разгрузился"
+    else -> "Записано"
+}
 
 data class TripUiState(
     val trip: TripDto,
@@ -38,43 +60,53 @@ sealed interface RoadmapUiState {
     data class Content(
         val assignmentId: String,
         val trips: List<TripUiState>,
-        val shiftEnded: Boolean
+        // Первая незакрытая ездка по порядку — её карточка раскрыта и
+        // подсвечена. Остальные видны и доступны (решение автора: водитель
+        // должен видеть все ездки), просто свёрнуты.
+        val activeTripId: String?
     ) : RoadmapUiState
 }
 
+// Подтверждение записанного действия: показываем, что именно зафиксировано и
+// во сколько, и даём несколько секунд на отмену, пока событие не ушло в 1С.
+data class ActionFeedback(
+    val text: String,
+    val undoEventId: String?
+)
+
 @HiltViewModel
 class RoadmapViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val assignmentRepository: AssignmentRepository,
     private val eventQueue: EventQueueRepository,
     private val documents: DocumentRepository,
+    private val queue: QueueRepository,
     private val settings: DriverSettingsRepository
 ) : ViewModel() {
+
+    private val assignmentId: String = checkNotNull(savedStateHandle["assignmentId"])
 
     private val _uiState = MutableStateFlow<RoadmapUiState>(RoadmapUiState.Loading)
     val uiState: StateFlow<RoadmapUiState> = _uiState.asStateFlow()
 
-    // События + фото вместе — водителю не важно, что именно "не отправлено",
-    // важно, что очередь не пуста и надо когда-нибудь нажать «Повторить».
-    val unsentCount: StateFlow<Int> = combine(
-        eventQueue.observeUnsentCount(),
-        documents.observePendingCount()
-    ) { events, photos -> events + photos }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    private val _feedback = MutableSharedFlow<ActionFeedback>(extraBufferCapacity = 1)
+    val feedback: SharedFlow<ActionFeedback> = _feedback.asSharedFlow()
 
     private var driverId: String? = null
+    private var flushJob: Job? = null
 
     init {
         viewModelScope.launch {
             val id = settings.driverId.first()
             if (id == null) {
-                _uiState.value = RoadmapUiState.Error("GUID водителя не задан")
+                _uiState.value = RoadmapUiState.Error("Телефон не настроен. Обратитесь к диспетчеру.")
                 return@launch
             }
             driverId = id
 
-            val assignment = assignmentRepository.getCached(id)
+            val assignment = assignmentRepository.getCachedById(assignmentId)
             if (assignment == null) {
-                _uiState.value = RoadmapUiState.Error("Разнарядка не найдена в кэше")
+                _uiState.value = RoadmapUiState.Error("Разнарядка ещё не загружена. Откройте вкладку «Разнарядка».")
                 return@launch
             }
             refresh(assignment)
@@ -93,7 +125,7 @@ class RoadmapViewModel @Inject constructor(
         _uiState.value = RoadmapUiState.Content(
             assignmentId = assignment.id,
             trips = trips,
-            shiftEnded = events.any { it.type == EventTypes.OKONCHANIE_SMENY }
+            activeTripId = trips.firstOrNull { !it.isResolved }?.trip?.id
         )
     }
 
@@ -101,9 +133,15 @@ class RoadmapViewModel @Inject constructor(
         val id = driverId ?: return
         val assignmentId = (_uiState.value as? RoadmapUiState.Content)?.assignmentId ?: return
         viewModelScope.launch {
-            eventQueue.enqueue(type = type, driverId = id, assignmentId = assignmentId, tripId = trip.id)
+            val eventId = eventQueue.enqueue(
+                type = type,
+                driverId = id,
+                assignmentId = assignmentId,
+                tripId = trip.id
+            )
             reloadFromCache()
-            retryQueue()
+            emitFeedback(actionFeedbackText(type), eventId)
+            scheduleFlush()
         }
     }
 
@@ -111,7 +149,7 @@ class RoadmapViewModel @Inject constructor(
         val id = driverId ?: return
         val assignmentId = (_uiState.value as? RoadmapUiState.Content)?.assignmentId ?: return
         viewModelScope.launch {
-            eventQueue.enqueue(
+            val eventId = eventQueue.enqueue(
                 type = EventTypes.SRYV,
                 driverId = id,
                 assignmentId = assignmentId,
@@ -119,16 +157,37 @@ class RoadmapViewModel @Inject constructor(
                 comment = comment
             )
             reloadFromCache()
-            retryQueue()
+            emitFeedback("Ездка отмечена как сорванная", eventId)
+            scheduleFlush()
         }
     }
 
-    fun onEndShift() {
-        val id = driverId ?: return
-        val assignmentId = (_uiState.value as? RoadmapUiState.Content)?.assignmentId ?: return
+    // Отмена работает только до фактической отправки. Само событие пишется в
+    // очередь сразу — GUID и время фиксируются в момент нажатия (инвариант 1),
+    // откладывается только отправка.
+    fun onUndo(eventId: String) {
         viewModelScope.launch {
-            eventQueue.enqueue(type = EventTypes.OKONCHANIE_SMENY, driverId = id, assignmentId = assignmentId)
+            // Сначала гасим отложенную отправку, чтобы событие не успело
+            // уехать между нажатием «Отменить» и удалением строки.
+            flushJob?.cancel()
+            eventQueue.cancelPending(eventId)
             reloadFromCache()
+            // Остальная очередь не виновата — её всё равно надо дослать.
+            scheduleFlush()
+        }
+    }
+
+    // tryEmit, а не emit: показ снекбара приостанавливает сборщик, и
+    // приостановленная отправка фидбека задержала бы отправку самого
+    // события в 1С. Потерять подсказку не страшно, задержать событие — да.
+    private fun emitFeedback(text: String, eventId: String?) {
+        _feedback.tryEmit(ActionFeedback(text = "$text — ${formatEventTime()}", undoEventId = eventId))
+    }
+
+    private fun scheduleFlush() {
+        flushJob?.cancel()
+        flushJob = viewModelScope.launch {
+            delay(UNDO_WINDOW_MILLIS)
             retryQueue()
         }
     }
@@ -153,23 +212,40 @@ class RoadmapViewModel @Inject constructor(
                 tripId = trip.id
             )
             reloadFromCache()
+            // Отмены здесь нет: фото уже снято и лежит в своей очереди,
+            // откат события оставил бы его висеть без ездки.
+            emitFeedback(actionFeedbackText(EventTypes.RAZGRUZILSYA), null)
             retryQueue()
         }
     }
 
-    fun onRetry() {
-        viewModelScope.launch { retryQueue() }
+    // Разгрузка без фото: накладную не отдали, камера не сработала, телефон
+    // сел. Без этого пути ездку нельзя закрыть вообще и встаёт вся смена,
+    // поэтому причина уходит комментарием к событию, а не теряется.
+    fun onUnloadWithoutPhoto(trip: TripDto, reason: String) {
+        val id = driverId ?: return
+        val assignmentId = (_uiState.value as? RoadmapUiState.Content)?.assignmentId ?: return
+        viewModelScope.launch {
+            val eventId = eventQueue.enqueue(
+                type = EventTypes.RAZGRUZILSYA,
+                driverId = id,
+                assignmentId = assignmentId,
+                tripId = trip.id,
+                comment = "Без фото документа: $reason"
+            )
+            reloadFromCache()
+            emitFeedback("Разгрузился, без фото", eventId)
+            scheduleFlush()
+        }
     }
 
     private suspend fun retryQueue() {
-        runCatching { eventQueue.sendPending() }
-        runCatching { documents.uploadPending() }
+        queue.flush()
         reloadFromCache()
     }
 
     private suspend fun reloadFromCache() {
-        val id = driverId ?: return
-        val assignment = assignmentRepository.getCached(id) ?: return
+        val assignment = assignmentRepository.getCachedById(assignmentId) ?: return
         refresh(assignment)
     }
 }
