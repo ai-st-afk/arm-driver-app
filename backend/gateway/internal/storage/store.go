@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -21,6 +22,10 @@ type AssignmentMeta struct {
 	DriverID    string    `json:"driver_id"`
 	ReceivedAt  time.Time `json:"received_at"`
 	ContentPath string    `json:"content_path"`
+	// Водители, у которых эта разнарядка была раньше (1С: плановая замена
+	// экипажа — та же разнарядка новой версией с другим <Водитель>). Им она
+	// отдаётся как отменённая, иначе молча пропала бы из их выдачи.
+	PreviousDriverIDs []string `json:"previous_driver_ids,omitempty"`
 }
 
 type Device struct {
@@ -112,6 +117,9 @@ func (s *Store) SaveAssignment(id string, version int, driverID string, raw []by
 		ReceivedAt:  time.Now().UTC(),
 		ContentPath: contentPath,
 	}
+	if existing, ok := idx.Assignments[id]; ok {
+		meta.PreviousDriverIDs = previousDrivers(existing, driverID)
+	}
 	if err := os.WriteFile(filepath.Join(s.dir, contentPath), raw, 0o644); err != nil {
 		return AssignmentMeta{}, false, err
 	}
@@ -137,7 +145,8 @@ func (s *Store) ListAssignmentsForDriver(driverID string, since time.Time) ([]As
 
 	var metas []AssignmentMeta
 	for _, meta := range idx.Assignments {
-		if meta.DriverID == driverID && !meta.ReceivedAt.Before(since) {
+		belongs := meta.DriverID == driverID || slices.Contains(meta.PreviousDriverIDs, driverID)
+		if belongs && !meta.ReceivedAt.Before(since) {
 			metas = append(metas, meta)
 		}
 	}
@@ -162,6 +171,16 @@ func (s *Store) GetAssignment(id string) ([]byte, AssignmentMeta, error) {
 		return nil, AssignmentMeta{}, err
 	}
 	return raw, meta, nil
+}
+
+// Если разнарядку вернули водителю, у которого она уже была, он снова
+// текущий, а не прежний.
+func previousDrivers(existing AssignmentMeta, newDriverID string) []string {
+	ids := slices.Clone(existing.PreviousDriverIDs)
+	if existing.DriverID != newDriverID && !slices.Contains(ids, existing.DriverID) {
+		ids = append(ids, existing.DriverID)
+	}
+	return slices.DeleteFunc(ids, func(id string) bool { return id == newDriverID })
 }
 
 func reminderKey(assignmentID, kind string) string { return assignmentID + ":" + kind }

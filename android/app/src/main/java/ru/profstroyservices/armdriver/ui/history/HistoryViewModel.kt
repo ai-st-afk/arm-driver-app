@@ -30,8 +30,7 @@ private val eventTypeLabels = mapOf(
     EventTypes.PRIBYL_NA_RAZGRUZKU to "Прибыл на разгрузку",
     EventTypes.RAZGRUZILSYA to "Разгрузился",
     EventTypes.SRYV to "Рейс сорван",
-    EventTypes.OKONCHANIE_SMENY to "Окончание смены",
-    EventTypes.OTKAZ_OT_RAZNARYADKI to "Отказ от разнарядки"
+    EventTypes.OKONCHANIE_SMENY to "Окончание смены"
 )
 
 // Только чтение: полный локальный лог событий, включая уже отправленные

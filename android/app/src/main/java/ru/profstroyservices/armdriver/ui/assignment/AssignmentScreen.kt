@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -22,13 +23,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -45,7 +43,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import ru.profstroyservices.armdriver.R
-import ru.profstroyservices.armdriver.data.network.AssignmentDto
+import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
+import ru.profstroyservices.armdriver.data.repository.AssignmentState
+import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.LabeledField
 import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
 import ru.profstroyservices.armdriver.ui.theme.statusActiveContainer
@@ -60,24 +60,17 @@ private val ButtonHeight = 64.dp
 @Composable
 fun AssignmentScreen(
     // Задан только когда экран открыт из списка разнарядок (их несколько) —
-    // тогда есть куда возвращаться. При единственной разнарядке список
-    // пропускается насквозь (см. AssignmentsGate), стрелка назад тут вела
-    // бы в никуда, поэтому её не показываем.
+    // тогда есть куда возвращаться.
     onBack: (() -> Unit)? = null,
     viewModel: AssignmentViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val shiftSwitchPrompt by viewModel.shiftSwitchPrompt.collectAsState()
-    var showCancelDialog by remember { mutableStateOf(false) }
+    var confirmEndShift by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Scaffold(
         topBar = {
-            // Шапка видна всегда — короткий цветной статус смены в углу
-            // заменяет собой строку «Статус смены» в теле экрана, которая
-            // не менялась синхронно с прогрессом рейсов и вводила в
-            // заблуждение (см. DEVLOG).
             TopAppBar(
                 title = {},
                 navigationIcon = {
@@ -88,9 +81,7 @@ fun AssignmentScreen(
                     }
                 },
                 actions = {
-                    (uiState as? AssignmentUiState.Content)?.let { content ->
-                        ShiftStatusBadge(content)
-                    }
+                    (uiState as? AssignmentUiState.Content)?.let { StatusBadge(it.state) }
                 }
             )
         }
@@ -110,8 +101,6 @@ fun AssignmentScreen(
             )
 
             is AssignmentUiState.Content -> Column(
-                // Баннер неотправленного сверху съедает высоту экрана — без
-                // скролла низ (кнопки смены) обрезался и не долистывался.
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
@@ -121,94 +110,58 @@ fun AssignmentScreen(
             ) {
                 AppHeader()
                 AssignmentContent(
-                    state = state,
+                    content = state,
                     onAcknowledge = viewModel::onAcknowledge,
                     onStartShift = viewModel::onStartShift,
-                    onRequestCancel = { showCancelDialog = true }
+                    onEndShift = { confirmEndShift = true }
                 )
             }
         }
     }
 
-    if (showCancelDialog) {
-        CancelAssignmentDialog(
-            onConfirm = { reason ->
-                viewModel.onCancelAssignment(reason)
-                showCancelDialog = false
-            },
-            onDismiss = { showCancelDialog = false }
-        )
-    }
-
-    shiftSwitchPrompt?.let { prompt ->
+    if (confirmEndShift) {
+        val label = (uiState as? AssignmentUiState.Content)?.state?.label
         AlertDialog(
-            onDismissRequest = viewModel::onDismissShiftSwitch,
-            title = { Text("Смена уже идёт") },
-            text = {
-                Text(
-                    "Смена по разнарядке № ${prompt.openAssignmentsLabel} ещё не закончена. " +
-                        "Закончить её и начать смену по этой разнарядке?"
-                )
-            },
+            onDismissRequest = { confirmEndShift = false },
+            title = { Text("Закончить смену?") },
+            text = { Text("Смена по разнарядке № $label будет закончена. Отменить это нельзя.") },
             confirmButton = {
-                Button(onClick = viewModel::onConfirmShiftSwitch) { Text("Закончить и начать") }
+                Button(onClick = {
+                    confirmEndShift = false
+                    viewModel.onEndShift()
+                }) { Text("Закончить смену") }
             },
             dismissButton = {
-                OutlinedButton(onClick = viewModel::onDismissShiftSwitch) { Text("Отмена") }
+                OutlinedButton(onClick = { confirmEndShift = false }) { Text("Отмена") }
             }
         )
     }
 }
 
-// Отказ от разнарядки самим водителем, до начала смены — не путать со
-// «Срыв» на экране рейсов (тот про конкретный рейс, после начала смены).
-// Причина обязательна: она уйдёт в 1С комментарием к событию.
+// Зелёный — смена идёт, красный — всё остальное. Цвет не единственный
+// признак — рядом всегда текст.
 @Composable
-private fun CancelAssignmentDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
-    var reason by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Причина отказа") },
-        text = {
-            OutlinedTextField(
-                value = reason,
-                onValueChange = { reason = it },
-                label = { Text("Комментарий (обязательно)") },
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(reason) }, enabled = reason.isNotBlank()) {
-                Text("Подтвердить")
-            }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("Отмена") }
-        }
-    )
-}
-
-// Зелёный — смена идёт, красным — любое другое состояние (не начата,
-// завершена, отказ). Цвет не единственный признак — рядом всегда текст.
-@Composable
-private fun ShiftStatusBadge(state: AssignmentUiState.Content) {
-    val active = state.shiftStarted && !state.shiftEnded
+private fun StatusBadge(state: AssignmentState) {
+    val active = state.phase == AssignmentPhase.IN_SHIFT && !state.cancelledByDispatcher
     val color = if (active) statusActiveColor() else MaterialTheme.colorScheme.error
     val container = if (active) statusActiveContainer() else MaterialTheme.colorScheme.errorContainer
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = container,
-        modifier = Modifier.padding(end = 16.dp)
-    ) {
+    Surface(shape = RoundedCornerShape(50), color = container, modifier = Modifier.padding(end = 16.dp)) {
         Text(
-            text = shiftStatusLabel(state),
+            text = statusLabel(state),
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,
             color = color
         )
     }
+}
+
+fun statusLabel(state: AssignmentState): String = when (state.phase) {
+    AssignmentPhase.NEW -> if (state.needsReacknowledge) "изменена" else "не принята"
+    AssignmentPhase.ACCEPTED -> "принята"
+    AssignmentPhase.IN_SHIFT -> if (state.cancelledByDispatcher) "отменена диспетчером" else "смена идёт"
+    AssignmentPhase.FINISHED -> if (state.endedByDispatcher) "рейсы сняты диспетчером" else "смена завершена"
+    AssignmentPhase.CANCELLED -> "отменена диспетчером"
 }
 
 @Composable
@@ -229,111 +182,127 @@ private fun AppHeader() {
 
 @Composable
 private fun AssignmentContent(
-    state: AssignmentUiState.Content,
+    content: AssignmentUiState.Content,
     onAcknowledge: () -> Unit,
     onStartShift: () -> Unit,
-    onRequestCancel: () -> Unit
+    onEndShift: () -> Unit
 ) {
-    val assignment: AssignmentDto = state.assignment
+    val state = content.state
+    val assignment = state.assignment
 
-    Text(text = "Разнарядка № ${assignment.number ?: assignment.id}", style = MaterialTheme.typography.headlineSmall)
+    Text(text = "Разнарядка № ${state.label}", style = MaterialTheme.typography.headlineSmall)
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         LabeledField(label = "Дата выезда", value = assignment.departureDay)
-        LabeledField(
-            label = "Водитель",
-            value = assignment.driver.name ?: assignment.driver.id
-        )
+        LabeledField(label = "Водитель", value = assignment.driver.name ?: assignment.driver.id)
         LabeledField(
             label = "Машина",
             value = "${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim()
         )
-        LabeledField(label = "Рейсов на смену", value = assignment.trips.size.toString())
+        LabeledField(label = "Рейсов на смену", value = state.trips.size.toString())
     }
 
     state.updatedAt?.let { updatedAt ->
-        Text(
-            text = "Обновлено в ${formatUpdatedAt(updatedAt)}",
-            style = MaterialTheme.typography.bodySmall
-        )
+        Text(text = "Обновлено в ${formatUpdatedAt(updatedAt)}", style = MaterialTheme.typography.bodySmall)
     }
 
-    // Отказался сам — дальше по этой разнарядке делать нечего: Ознакомлен/
-    // Начать смену теряют смысл, показываем только статус.
-    if (state.cancelledByDriver) {
-        Text(
-            text = "Вы отказались от этой разнарядки.",
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        return
-    }
+    when (state.phase) {
+        AssignmentPhase.CANCELLED -> {
+            Notice("Разнарядка отменена диспетчером.${reasonSuffix(state)}")
+            CallDispatcherButton()
+        }
 
-    Button(
-        onClick = onAcknowledge,
-        enabled = !state.acknowledged,
-        modifier = Modifier.fillMaxWidth().height(ButtonHeight)
-    ) {
-        // Подпись — «принял», потому что для диспетчера это и есть приём
-        // разнарядки. Тип события в контракте с 1С остаётся `Ознакомление`.
-        Text(
-            if (state.acknowledged) "Разнарядка принята" else "Ознакомился и принял",
-            style = MaterialTheme.typography.labelLarge
-        )
-    }
+        AssignmentPhase.NEW, AssignmentPhase.ACCEPTED -> {
+            if (state.needsReacknowledge) {
+                Notice("Диспетчер изменил разнарядку. Проверьте рейсы и подтвердите заново.")
+            }
+            Button(
+                onClick = onAcknowledge,
+                enabled = state.phase == AssignmentPhase.NEW,
+                modifier = Modifier.fillMaxWidth().height(ButtonHeight)
+            ) {
+                // Тип события в контракте с 1С — `Ознакомление`.
+                Text(
+                    if (state.phase == AssignmentPhase.NEW) "Ознакомился и принял" else "Разнарядка принята",
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Button(
+                onClick = onStartShift,
+                enabled = state.phase == AssignmentPhase.ACCEPTED && content.otherOpenShiftLabel == null,
+                modifier = Modifier.fillMaxWidth().height(ButtonHeight),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Text("Начать смену", style = MaterialTheme.typography.labelLarge)
+            }
+            content.otherOpenShiftLabel?.let { other ->
+                Text(
+                    text = "Сначала закончите смену по разнарядке № $other.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            CallDispatcherButton()
+        }
 
-    Button(
-        onClick = onStartShift,
-        enabled = state.acknowledged && !state.shiftStarted,
-        modifier = Modifier.fillMaxWidth().height(ButtonHeight),
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-    ) {
-        Text("Начать смену", style = MaterialTheme.typography.labelLarge)
-    }
+        AssignmentPhase.IN_SHIFT -> {
+            if (state.cancelledByDispatcher) {
+                Notice("Разнарядка отменена диспетчером.${reasonSuffix(state)} Закончите смену.")
+            } else {
+                Text(
+                    text = tripsProgressLabel(state),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            if (state.canEndShift) {
+                Button(
+                    onClick = onEndShift,
+                    modifier = Modifier.fillMaxWidth().height(ButtonHeight)
+                ) {
+                    Text("Закончить смену", style = MaterialTheme.typography.labelLarge)
+                }
+            } else {
+                Text(
+                    text = "Рейсы — во вкладке «Мои рейсы». «Закончить смену» появится, когда все рейсы будут закрыты.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            CallDispatcherButton()
+        }
 
-    if (state.shiftStarted) {
-        // «Закончить смену» теперь не здесь — она общая на все вкладки
-        // (см. ActiveShiftBar в MainScaffold), не привязана к тому, какую
-        // разнарядку водитель сейчас смотрит.
-        Text(
-            text = tripsProgressLabel(state),
+        AssignmentPhase.FINISHED -> Text(
+            text = if (state.endedByDispatcher) {
+                "Диспетчер снял оставшиеся рейсы, смена по этой разнарядке закрыта."
+            } else {
+                "Смена завершена. ${tripsProgressLabel(state)}"
+            },
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold
         )
-        Text(
-            text = "Рейсы — во вкладке «Мои рейсы».",
-            style = MaterialTheme.typography.bodySmall
-        )
-    } else {
-        // Доступно только до начала смены — после НачалоСмены отказ от
-        // задания уже не имеет смысла, там свои шаги (Срыв по рейсу).
-        // Визуально слабее основных кнопок — редкое и тяжёлое действие.
-        TextButton(
-            onClick = onRequestCancel,
-            modifier = Modifier.fillMaxWidth().height(ButtonHeight)
-        ) {
-            Text("Отказаться от разнарядки", color = MaterialTheme.colorScheme.error)
-        }
     }
 }
+
+@Composable
+private fun Notice(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.error
+    )
+}
+
+private fun reasonSuffix(state: AssignmentState): String =
+    state.assignment.cancelReason?.takeIf { it.isNotBlank() }?.let { " Причина: $it." } ?: ""
 
 private fun formatUpdatedAt(millis: Long): String =
     SimpleDateFormat("HH:mm", Locale("ru")).format(Date(millis))
 
-private fun shiftStatusLabel(state: AssignmentUiState.Content): String = when {
-    state.cancelledByDriver -> "отказался от разнарядки"
-    state.shiftEnded -> "смена завершена"
-    state.shiftStarted -> "смена идёт"
-    state.acknowledged -> "ознакомлен"
-    else -> "не ознакомлен"
-}
-
-// Разнарядка не шлёт отдельного статуса завершения — считаем сами по
-// рейсам (Разгрузился/Срыв/снята диспетчером = закрыт). Дробь вместо
-// отдельных фраз «первый закончен»/«ожидание следующего» — верно при любом
-// числе рейсов, не только при двух.
-private fun tripsProgressLabel(state: AssignmentUiState.Content): String = when {
-    state.tripsTotal == 0 -> "Рейсов нет"
-    state.tripsCompleted >= state.tripsTotal -> "Все рейсы завершены"
-    else -> "Рейсы: ${state.tripsCompleted} из ${state.tripsTotal} выполнено"
+// Дробь вместо фраз «первый закончен»/«ожидание следующего» — верна при
+// любом числе рейсов. Снятые диспетчером считаются закрытыми.
+fun tripsProgressLabel(state: AssignmentState): String = when {
+    state.trips.isEmpty() -> "Рейсов нет"
+    state.tripsResolved >= state.trips.size -> "Все рейсы закрыты"
+    else -> "Рейсы: ${state.tripsResolved} из ${state.trips.size} закрыто"
 }

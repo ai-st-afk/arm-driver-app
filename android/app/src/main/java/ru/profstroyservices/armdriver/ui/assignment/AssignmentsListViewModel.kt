@@ -4,88 +4,77 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import ru.profstroyservices.armdriver.data.network.AssignmentDto
-import ru.profstroyservices.armdriver.data.repository.AssignmentRepository
-import ru.profstroyservices.armdriver.data.repository.EventQueueRepository
-import ru.profstroyservices.armdriver.data.repository.EventTypes
-import ru.profstroyservices.armdriver.data.repository.openShiftStartedAt
-import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
-import java.time.OffsetDateTime
+import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
+import ru.profstroyservices.armdriver.data.repository.AssignmentState
+import ru.profstroyservices.armdriver.data.repository.AssignmentStateRepository
+import ru.profstroyservices.armdriver.data.repository.currentAssignment
 import javax.inject.Inject
 
 data class AssignmentSummary(
     val id: String,
-    val number: String?,
+    val label: String,
     val departureDay: String,
     val statusLabel: String,
-    val openShiftStartedAt: OffsetDateTime?
+    val isCurrent: Boolean
 )
 
 sealed interface AssignmentsListUiState {
     data object Loading : AssignmentsListUiState
-    data class Error(val message: String) : AssignmentsListUiState
-    data class Loaded(val assignments: List<AssignmentSummary>) : AssignmentsListUiState
+    data class Loaded(
+        val assignments: List<AssignmentSummary>,
+        val current: AssignmentState?
+    ) : AssignmentsListUiState
 }
 
-// Общий источник данных для корня таба «Разнарядка» и пикера в табе
-// «Мои рейсы» — за день у водителя может быть несколько разнарядок
-// (Stage 8), оба таба показывают один и тот же список, только ведут по
-// тапу в разные маршруты.
 @HiltViewModel
 class AssignmentsListViewModel @Inject constructor(
-    private val assignmentRepository: AssignmentRepository,
-    private val eventQueue: EventQueueRepository,
-    private val settings: DriverSettingsRepository
+    private val states: AssignmentStateRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow<AssignmentsListUiState>(AssignmentsListUiState.Loading)
-    val uiState: StateFlow<AssignmentsListUiState> = _uiState.asStateFlow()
+    private val refreshing = MutableStateFlow(true)
+
+    val uiState: StateFlow<AssignmentsListUiState> =
+        combine(states.observeStates(), refreshing) { all, refreshing ->
+            // Пока первый запрос не вернулся и кэш пуст — это загрузка, а не
+            // «разнарядок нет».
+            if (all.isEmpty() && refreshing) return@combine AssignmentsListUiState.Loading
+            val current = currentAssignment(all)
+            val ordered = all.sortedWith(
+                compareBy<AssignmentState>({ it.id != current?.id }, { phaseOrder(it.phase) }, { it.assignment.departureDay })
+            )
+            AssignmentsListUiState.Loaded(
+                assignments = ordered.map { state ->
+                    AssignmentSummary(
+                        id = state.id,
+                        label = state.label,
+                        departureDay = state.assignment.departureDay,
+                        statusLabel = statusLabel(state),
+                        isCurrent = state.id == current?.id
+                    )
+                },
+                current = current
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AssignmentsListUiState.Loading)
 
     init {
-        load(showLoading = true)
+        refresh()
     }
 
-    // Повторная загрузка при каждом возврате на вкладку и в приложение —
-    // без неё список живёт с момента холодного старта (стек вкладки
-    // восстанавливается вместе с ViewModel, init второй раз не сработает).
-    fun refresh() = load(showLoading = false)
-
-    private fun load(showLoading: Boolean) {
+    fun refresh() {
         viewModelScope.launch {
-            if (showLoading) _uiState.value = AssignmentsListUiState.Loading
-            val driverId = settings.driverId.first()
-            if (driverId == null) {
-                _uiState.value = AssignmentsListUiState.Error("Телефон не настроен. Обратитесь к диспетчеру.")
-                return@launch
-            }
-
-            val fresh = assignmentRepository.refreshList(driverId).getOrNull()
-            val assignments = fresh ?: assignmentRepository.getCachedList(driverId)
-            val summaries = mutableListOf<AssignmentSummary>()
-            for (assignment in assignments) summaries.add(assignment.toSummary())
-            _uiState.value = AssignmentsListUiState.Loaded(summaries)
+            states.refresh()
+            refreshing.value = false
         }
     }
 
-    private suspend fun AssignmentDto.toSummary(): AssignmentSummary {
-        val events = eventQueue.observeForAssignment(id).first()
-        val statusLabel = when {
-            events.any { it.type == EventTypes.OTKAZ_OT_RAZNARYADKI && !it.cancelled } -> "отказался от разнарядки"
-            events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled } -> "смена завершена"
-            events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled } -> "смена идёт"
-            events.any { it.type == EventTypes.OZNAKOMLENIE && !it.cancelled } -> "ознакомлен"
-            else -> "не ознакомлен"
-        }
-        return AssignmentSummary(
-            id = id,
-            number = number,
-            departureDay = departureDay,
-            statusLabel = statusLabel,
-            openShiftStartedAt = openShiftStartedAt(events)
-        )
+    private fun phaseOrder(phase: AssignmentPhase): Int = when (phase) {
+        AssignmentPhase.IN_SHIFT -> 0
+        AssignmentPhase.NEW, AssignmentPhase.ACCEPTED -> 1
+        AssignmentPhase.FINISHED, AssignmentPhase.CANCELLED -> 2
     }
 }

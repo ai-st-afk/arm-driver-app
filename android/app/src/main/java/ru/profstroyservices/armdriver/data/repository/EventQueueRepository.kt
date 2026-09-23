@@ -37,10 +37,16 @@ class EventQueueRepository @Inject constructor(
         type: String,
         driverId: String,
         assignmentId: String,
+        assignmentVersion: Int,
         tripId: String? = null,
         comment: String = ""
     ): String? {
-        if (dao.exists(assignmentId, type, tripId)) return null
+        val duplicate = if (type == EventTypes.OZNAKOMLENIE) {
+            dao.existsForVersion(assignmentId, type, assignmentVersion)
+        } else {
+            dao.exists(assignmentId, type, tripId)
+        }
+        if (duplicate) return null
         val id = UUID.randomUUID().toString()
         dao.insert(
             PendingEventEntity(
@@ -50,7 +56,8 @@ class EventQueueRepository @Inject constructor(
                 assignmentId = assignmentId,
                 tripId = tripId,
                 time = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-                comment = comment
+                comment = comment,
+                assignmentVersion = assignmentVersion
             )
         )
         return id

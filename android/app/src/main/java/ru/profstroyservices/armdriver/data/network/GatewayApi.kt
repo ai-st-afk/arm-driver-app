@@ -16,7 +16,7 @@ interface GatewayApi {
     suspend fun getAssignments(@Query("driver_id") driverId: String): AssignmentsListResponse
 
     @GET("api/mobile/assignments/{id}")
-    suspend fun getAssignment(@Path("id") id: String): AssignmentDto
+    suspend fun getAssignment(@Path("id") id: String, @Query("driver_id") driverId: String): AssignmentDto
 
     @POST("api/mobile/devices")
     suspend fun registerDevice(@Body request: DeviceRequest): DeviceResponse

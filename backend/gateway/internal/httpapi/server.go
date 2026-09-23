@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -102,8 +103,15 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 	// <Идентификатор> с новой версией — это не новая задача для водителя,
 	// а правка уже показанной. Без этого различия любая правка после приёма
 	// заново запускала бы напоминания «не принята», хотя водитель её принял.
-	_, _, existsErr := s.store.GetAssignment(assignment.ID)
+	_, existingMeta, existsErr := s.store.GetAssignment(assignment.ID)
 	isNewAssignment := errors.Is(existsErr, storage.ErrNotFound)
+	// 1С: плановая замена экипажа до начала смены — та же разнарядка новой
+	// версией с другим <Водитель>. Для нового водителя это новая задача, для
+	// прежнего — отмена.
+	reassignedFrom := ""
+	if existsErr == nil && existingMeta.DriverID != assignment.Driver.ID {
+		reassignedFrom = existingMeta.DriverID
+	}
 
 	meta, saved, err := s.store.SaveAssignment(assignment.ID, assignment.Version, assignment.Driver.ID, body)
 	if err != nil {
@@ -130,7 +138,7 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case cancelled:
 		kind = push.KindCancelled
-	case isNewAssignment:
+	case isNewAssignment, reassignedFrom != "":
 		kind = push.KindNew
 	}
 
@@ -139,6 +147,13 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.CancelReminders(assignment.ID); err != nil {
 			s.logger.ErrorContext(r.Context(), "cancel reminders failed", "error", err, "assignment", assignment.ID)
 		}
+	case reassignedFrom != "":
+		// Напоминания «не принята» шли прежнему водителю — теперь они для
+		// нового, отсчёт с момента передачи.
+		if err := s.store.CancelReminders(assignment.ID); err != nil {
+			s.logger.ErrorContext(r.Context(), "cancel reminders failed", "error", err, "assignment", assignment.ID)
+		}
+		s.scheduleReminders(r.Context(), assignment)
 	case isNewAssignment:
 		// Ревизию уже известной разнарядки напоминаниями не трогаем: если
 		// водитель её принял, CancelReminders уже снял их при приёме, и
@@ -156,6 +171,20 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 		s.logger.ErrorContext(r.Context(), "assignment push failed", "error", err, "assignment", assignment.ID)
 		writeXMLError(w, http.StatusBadGateway, "разнарядка сохранена, но push не отправлен")
 		return
+	}
+
+	if reassignedFrom != "" {
+		// Прежнему водителю — отмена. Разнарядка у нового уже сохранена и
+		// доставлена, поэтому сбой этого пуша приём не валит: прежний
+		// водитель всё равно увидит отмену в выдаче при обновлении.
+		if err := s.push.SendAssignment(r.Context(), push.AssignmentNotification{
+			Kind:         push.KindCancelled,
+			AssignmentID: assignment.ID,
+			Version:      assignment.Version,
+			DriverID:     reassignedFrom,
+		}); err != nil {
+			s.logger.ErrorContext(r.Context(), "reassign push failed", "error", err, "assignment", assignment.ID, "driver", reassignedFrom)
+		}
 	}
 
 	s.logger.InfoContext(
@@ -285,7 +314,11 @@ func (s *Server) listAssignments(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		assignments = append(assignments, assignmentToResponse(assignment))
+		response := assignmentToResponse(assignment)
+		if meta.DriverID != driverID {
+			markReassigned(&response)
+		}
+		assignments = append(assignments, response)
 	}
 	writeJSON(w, http.StatusOK, assignmentsListResponse{Assignments: assignments})
 }
@@ -301,7 +334,7 @@ func (s *Server) assignmentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, _, err := s.store.GetAssignment(id)
+	raw, meta, err := s.store.GetAssignment(id)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			writeJSONError(w, http.StatusNotFound, "not_found", "разнарядка не найдена")
@@ -315,7 +348,21 @@ func (s *Server) assignmentByID(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, assignmentToResponse(assignment))
+	response := assignmentToResponse(assignment)
+	// driver_id необязателен (старые версии приложения его не шлют): с ним
+	// прежний водитель получает разнарядку как отменённую, а не чужую.
+	if driverID := r.URL.Query().Get("driver_id"); driverID != "" && meta.DriverID != driverID &&
+		slices.Contains(meta.PreviousDriverIDs, driverID) {
+		markReassigned(&response)
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+const reassignedReason = "Разнарядка передана другому водителю"
+
+func markReassigned(response *assignmentResponse) {
+	response.Status = statusCancelled
+	response.CancelReason = reassignedReason
 }
 
 func (s *Server) assignmentByIDXML(w http.ResponseWriter, r *http.Request) {

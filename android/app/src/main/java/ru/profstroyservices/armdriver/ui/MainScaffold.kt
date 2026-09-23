@@ -14,6 +14,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -38,9 +39,9 @@ import ru.profstroyservices.armdriver.ui.queue.QueueViewModel
 import ru.profstroyservices.armdriver.ui.queue.UnsentBanner
 import ru.profstroyservices.armdriver.ui.roadmap.RoadmapScreen
 import ru.profstroyservices.armdriver.ui.settings.SettingsScreen
-import ru.profstroyservices.armdriver.ui.shift.ActiveShiftBar
-import ru.profstroyservices.armdriver.ui.shift.ShiftUiState
-import ru.profstroyservices.armdriver.ui.shift.ShiftViewModel
+import ru.profstroyservices.armdriver.ui.assignment.GateMode
+import ru.profstroyservices.armdriver.ui.current.CurrentAssignmentBar
+import ru.profstroyservices.armdriver.ui.current.CurrentAssignmentViewModel
 
 // Постоянный нижний таб-бар — это и есть «всегда можно выйти в главное
 // меню» из запроса автора: не нужен отдельный пункт «Главная», сам бар
@@ -78,19 +79,19 @@ private val tabs = listOf(
 fun MainScaffold(
     navController: NavHostController = rememberNavController(),
     queueViewModel: QueueViewModel = hiltViewModel(),
-    shiftViewModel: ShiftViewModel = hiltViewModel()
+    currentViewModel: CurrentAssignmentViewModel = hiltViewModel()
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val queueState by queueViewModel.state.collectAsState()
-    val shiftState by shiftViewModel.uiState.collectAsState()
+    val current by currentViewModel.current.collectAsState()
 
     // Возврат в приложение — повод дослать то, что залипло в очереди, пока
     // телефон был без сети (автосинхронизации в объёме нет, см. AGENTS.md),
-    // и пересобрать список разнарядок, которые слушает ShiftViewModel.
+    // и забрать свежие разнарядки (диспетчер мог отменить или прислать новую).
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         queueViewModel.onRetry()
-        shiftViewModel.refresh()
+        currentViewModel.refresh()
     }
 
     Scaffold(
@@ -103,12 +104,12 @@ fun MainScaffold(
                             navController.navigate(tab.navTarget) {
                                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                 launchSingleTop = true
-                                // «Мои рейсы» не восстанавливаем: иначе вкладка
-                                // возвращала сохранённый экран рейсов прошлой
-                                // разнарядки, даже когда смена уже началась по
-                                // другой. Вход через AssignmentsGate каждый раз
-                                // заново выбирает текущую.
-                                restoreState = tab.navTarget != MainRoutes.TRIPS_GRAPH
+                                // Вкладки разнарядок и рейсов не восстанавливаем:
+                                // сохранённый экран показывал бы разнарядку,
+                                // которая уже не текущая, и прятал новую. Вход
+                                // через AssignmentsGate каждый раз решает заново.
+                                restoreState = tab.navTarget != MainRoutes.TRIPS_GRAPH &&
+                                    tab.navTarget != MainRoutes.ASSIGNMENTS_GRAPH
                             }
                         },
                         icon = { Icon(tab.icon, contentDescription = tab.label) },
@@ -128,9 +129,7 @@ fun MainScaffold(
                 .consumeWindowInsets(innerPadding)
         ) {
             UnsentBanner(state = queueState, onRetry = queueViewModel::onRetry)
-            (shiftState as? ShiftUiState.Active)?.let { active ->
-                ActiveShiftBar(state = active, onEndShift = shiftViewModel::onEndShift)
-            }
+            current?.state?.let { CurrentAssignmentBar(state = it) }
 
             NavHost(
                 navController = navController,
@@ -139,7 +138,8 @@ fun MainScaffold(
                 navigation(startDestination = MainRoutes.ASSIGNMENTS, route = MainRoutes.ASSIGNMENTS_GRAPH) {
                     composable(MainRoutes.ASSIGNMENTS) {
                         AssignmentsGate(
-                            onSingle = { id ->
+                            mode = GateMode.ASSIGNMENTS,
+                            onOpen = { id ->
                                 navController.navigate(MainRoutes.assignmentDetail(id)) {
                                     popUpTo(MainRoutes.ASSIGNMENTS) { inclusive = true }
                                 }
@@ -151,15 +151,16 @@ fun MainScaffold(
                         MainRoutes.ASSIGNMENT_DETAIL,
                         arguments = listOf(navArgument("assignmentId") { type = NavType.StringType })
                     ) {
-                        // Стрелка назад видна, только если сюда реально
-                        // пришли из списка (разнарядок несколько) — при
-                        // единственной список пропускается насквозь
-                        // (popUpTo inclusive в onSingle выше), и предыдущей
-                        // записи с ним в стеке не будет вообще.
-                        val cameFromList = navController.previousBackStackEntry
-                            ?.destination?.route == MainRoutes.ASSIGNMENTS
-                        val onBack: (() -> Unit)? = if (cameFromList) {
-                            { navController.popBackStack() }
+                        // Стрелка к списку — когда разнарядок больше одной, в
+                        // том числе если вторая пришла, пока открыта первая
+                        // (замена экипажа). При одной список не нужен.
+                        val onBack: (() -> Unit)? = if ((current?.totalAssignments ?: 0) > 1) {
+                            {
+                                navController.navigate(MainRoutes.ASSIGNMENTS) {
+                                    popUpTo(MainRoutes.ASSIGNMENTS_GRAPH)
+                                    launchSingleTop = true
+                                }
+                            }
                         } else null
                         AssignmentScreen(onBack = onBack)
                     }
@@ -167,26 +168,31 @@ fun MainScaffold(
 
                 navigation(startDestination = MainRoutes.TRIPS, route = MainRoutes.TRIPS_GRAPH) {
                     composable(MainRoutes.TRIPS) {
-                        AssignmentsGate(
-                            onSingle = { id ->
-                                navController.navigate(MainRoutes.roadmap(id)) {
-                                    popUpTo(MainRoutes.TRIPS) { inclusive = true }
-                                }
-                            },
-                            onSelectFromList = { id -> navController.navigate(MainRoutes.roadmap(id)) },
-                            autoSelectActive = true
-                        )
+                        val openRoadmap: (String) -> Unit = { id ->
+                            navController.navigate(MainRoutes.roadmap(id)) {
+                                popUpTo(MainRoutes.TRIPS) { inclusive = true }
+                            }
+                        }
+                        AssignmentsGate(mode = GateMode.TRIPS, onOpen = openRoadmap, onSelectFromList = openRoadmap)
                     }
                     composable(
                         MainRoutes.ROADMAP,
                         arguments = listOf(navArgument("assignmentId") { type = NavType.StringType })
-                    ) {
-                        val cameFromList = navController.previousBackStackEntry
-                            ?.destination?.route == MainRoutes.TRIPS
-                        val onBack: (() -> Unit)? = if (cameFromList) {
-                            { navController.popBackStack() }
-                        } else null
-                        RoadmapScreen(onBack = onBack)
+                    ) { entry ->
+                        // Во вкладке только текущая разнарядка. Сменилась
+                        // текущая (смена закончена, диспетчер прислал новую) —
+                        // возвращаемся к развилке: там новая или пустой экран.
+                        val shownId = entry.arguments?.getString("assignmentId")
+                        val loaded = current
+                        LaunchedEffect(loaded?.state?.id) {
+                            if (loaded != null && loaded.state?.id != shownId) {
+                                navController.navigate(MainRoutes.TRIPS) {
+                                    popUpTo(MainRoutes.TRIPS_GRAPH)
+                                    launchSingleTop = true
+                                }
+                            }
+                        }
+                        RoadmapScreen()
                     }
                 }
 

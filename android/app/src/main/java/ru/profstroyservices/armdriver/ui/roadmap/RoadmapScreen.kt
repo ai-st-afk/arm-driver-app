@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
@@ -30,7 +29,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -56,17 +54,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import ru.profstroyservices.armdriver.data.network.PointDto
 import ru.profstroyservices.armdriver.data.network.TripDto
+import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
+import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.EventTypes
+import ru.profstroyservices.armdriver.data.repository.TripProgress
+import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.LabeledField
 import ru.profstroyservices.armdriver.ui.components.cargoValue
 import ru.profstroyservices.armdriver.ui.components.firstNotBlank
@@ -94,17 +96,14 @@ private val actionLabels = mapOf(
     EventTypes.RAZGRUZILSYA to "Разгрузился (фото документа)"
 )
 
+// Во вкладке «Мои рейсы» всегда только текущая разнарядка (см.
+// AssignmentsGate), поэтому стрелки назад тут нет.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoadmapScreen(
-    // См. AssignmentScreen — задан только когда экран открыт из списка-пикера
-    // (разнарядок несколько), иначе показывать нечего вести назад.
-    onBack: (() -> Unit)? = null,
-    viewModel: RoadmapViewModel = hiltViewModel()
-) {
+fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
-    var sryvTarget by remember { mutableStateOf<TripDto?>(null) }
     var expandedTripId by remember { mutableStateOf<String?>(null) }
+    var confirmEndShift by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshFromNetwork() }
 
@@ -112,8 +111,7 @@ fun RoadmapScreen(
     val haptics = LocalHapticFeedback.current
 
     // Камера пишет фото в файл, подготовленный заранее (prepareCapture) —
-    // это гарантирует "только с камеры", не из галереи: TakePicture ничего
-    // не выбирает, только снимает и сохраняет по готовому Uri.
+    // это гарантирует "только с камеры", не из галереи.
     var captureTarget by remember { mutableStateOf<Pair<TripDto, File>?>(null) }
     var noPhotoTarget by remember { mutableStateOf<TripDto?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -122,23 +120,20 @@ fun RoadmapScreen(
         if (success && target != null) {
             viewModel.onPhotoCaptured(target.first, target.second)
         } else if (target != null) {
-            // Раньше неудачная съёмка проходила молча: водитель жал кнопку,
-            // ничего не происходило, и он не понимал, закрылся рейс или нет.
             noPhotoTarget = target.first
         }
     }
 
-    val activeTripId = (uiState as? RoadmapUiState.Content)?.activeTripId
-    // Активный рейс раскрыт сам: закрыл предыдущую — следующая открылась.
+    val content = (uiState as? RoadmapUiState.Content)?.state
+    val activeTripId = content?.activeTrip?.trip?.id
+    // Активный рейс раскрыт сам: закрыл предыдущий — следующий открылся.
     LaunchedEffect(activeTripId) { expandedTripId = activeTripId }
 
     LaunchedEffect(Unit) {
         viewModel.feedback.collect { feedback ->
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             // showSnackbar с actionLabel по умолчанию держит уведомление
-            // бесконечно (SnackbarDuration.Indefinite) — а тут нужно ровно
-            // столько же, сколько у окна отмены во ViewModel, дальше событие
-            // уже уходит в 1С и отменять поздно.
+            // бесконечно — а нужно ровно столько, сколько окно отмены.
             val autoDismiss = launch {
                 delay(FeedbackAutoDismissMillis)
                 snackbarHostState.currentSnackbarData?.dismiss()
@@ -157,22 +152,7 @@ fun RoadmapScreen(
     }
 
     Scaffold(
-        topBar = {
-            // Шапка видна всегда (не только когда есть куда возвращаться) —
-            // водитель должен видеть, по какой разнарядке эти рейсы, даже
-            // если она единственная и список-пикер был пропущен насквозь.
-            val assignmentNumber = (uiState as? RoadmapUiState.Content)?.assignmentNumber
-            TopAppBar(
-                title = { Text(assignmentNumber?.let { "Разнарядка № $it" } ?: "") },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад к списку разнарядок")
-                        }
-                    }
-                }
-            )
-        },
+        topBar = { TopAppBar(title = { Text(content?.let { "Разнарядка № ${it.label}" } ?: "") }) },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -189,67 +169,40 @@ fun RoadmapScreen(
                     modifier = Modifier.padding(20.dp)
                 )
 
-                is RoadmapUiState.Content -> LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    val banner = when {
-                        state.shiftEnded -> "Смена по этой разнарядке закончена."
-                        !state.shiftStarted -> "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
-                        else -> null
-                    }
-                    banner?.let { text ->
-                        item {
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.error
-                            )
+                is RoadmapUiState.Content -> RoadmapList(
+                    state = state.state,
+                    expandedTripId = expandedTripId,
+                    onToggle = { tripId -> expandedTripId = if (expandedTripId == tripId) null else tripId },
+                    onAction = { trip, type ->
+                        if (type == EventTypes.RAZGRUZILSYA) {
+                            val (file, uri) = viewModel.prepareCapture()
+                            captureTarget = trip to file
+                            cameraLauncher.launch(uri)
+                        } else {
+                            viewModel.onTripAction(trip, type)
                         }
-                    }
-                    val lockedHint = when {
-                        state.shiftEnded -> "Смена закончена — отмечать этапы больше нельзя."
-                        !state.shiftStarted -> "Начните смену, чтобы отмечать этапы этого рейса."
-                        else -> null
-                    }
-                    items(state.trips, key = { it.trip.id }) { tripState ->
-                        TripRow(
-                            state = tripState,
-                            isActive = tripState.trip.id == state.activeTripId,
-                            lockedHint = lockedHint,
-                            expanded = tripState.trip.id == expandedTripId,
-                            onToggle = {
-                                expandedTripId = if (expandedTripId == tripState.trip.id) {
-                                    null
-                                } else {
-                                    tripState.trip.id
-                                }
-                            },
-                            onAction = { type ->
-                                if (type == EventTypes.RAZGRUZILSYA) {
-                                    val (file, uri) = viewModel.prepareCapture()
-                                    captureTarget = tripState.trip to file
-                                    cameraLauncher.launch(uri)
-                                } else {
-                                    viewModel.onTripAction(tripState.trip, type)
-                                }
-                            },
-                            onSryv = { sryvTarget = tripState.trip },
-                            onStepBack = { viewModel.onStepBack(tripState.trip) }
-                        )
-                    }
-                }
+                    },
+                    onStepBack = viewModel::onStepBack,
+                    onEndShift = { confirmEndShift = true }
+                )
             }
         }
     }
 
-    sryvTarget?.let { trip ->
-        SryvDialog(
-            onConfirm = { comment ->
-                viewModel.onSryv(trip, comment)
-                sryvTarget = null
+    if (confirmEndShift) {
+        AlertDialog(
+            onDismissRequest = { confirmEndShift = false },
+            title = { Text("Закончить смену?") },
+            text = { Text("Смена по разнарядке № ${content?.label} будет закончена. Отменить это нельзя.") },
+            confirmButton = {
+                Button(onClick = {
+                    confirmEndShift = false
+                    viewModel.onEndShift()
+                }) { Text("Закончить смену") }
             },
-            onDismiss = { sryvTarget = null }
+            dismissButton = {
+                OutlinedButton(onClick = { confirmEndShift = false }) { Text("Отмена") }
+            }
         )
     }
 
@@ -270,9 +223,76 @@ fun RoadmapScreen(
     }
 }
 
-// Фото не получилось. Закрыть рейс всё равно надо — иначе встаёт смена,
-// а диспетчер не сможет закрыть разнарядку. Причина обязательна: она уйдёт
-// в 1С комментарием, чтобы отсутствие накладной было объяснено.
+@Composable
+private fun RoadmapList(
+    state: AssignmentState,
+    expandedTripId: String?,
+    onToggle: (String) -> Unit,
+    onAction: (TripDto, String) -> Unit,
+    onStepBack: (TripDto) -> Unit,
+    onEndShift: () -> Unit
+) {
+    val banner = when {
+        state.cancelledByDispatcher && state.phase == AssignmentPhase.IN_SHIFT ->
+            "Разнарядка отменена диспетчером. Закончите смену."
+        state.cancelledByDispatcher -> "Разнарядка отменена диспетчером."
+        state.endedByDispatcher -> "Диспетчер снял оставшиеся рейсы, смена по этой разнарядке закрыта."
+        state.phase == AssignmentPhase.FINISHED -> "Смена по этой разнарядке закончена."
+        state.phase != AssignmentPhase.IN_SHIFT ->
+            "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
+        else -> null
+    }
+    val lockedHint = when {
+        state.canMarkTrips -> null
+        state.phase == AssignmentPhase.FINISHED -> "Смена закончена — отмечать этапы больше нельзя."
+        state.cancelledByDispatcher -> "Разнарядка отменена — отмечать этапы нельзя."
+        else -> "Начните смену, чтобы отмечать этапы этого рейса."
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        banner?.let { text ->
+            item(key = "banner") {
+                Text(text = text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        items(state.trips, key = { it.trip.id }) { progress ->
+            TripRow(
+                state = progress,
+                isActive = progress.trip.id == state.activeTrip?.trip?.id,
+                lockedHint = lockedHint,
+                expanded = progress.trip.id == expandedTripId,
+                onToggle = { onToggle(progress.trip.id) },
+                onAction = { type -> onAction(progress.trip, type) },
+                onStepBack = { onStepBack(progress.trip) }
+            )
+        }
+        // Смену заканчивают руками, когда работы не осталось: все рейсы
+        // выполнены или сняты диспетчером (конец смены — отдельный факт от
+        // последней разгрузки, AGENTS.md).
+        if (state.canEndShift) {
+            item(key = "end_shift") {
+                Button(
+                    onClick = onEndShift,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(PrimaryActionHeight)
+                ) {
+                    Text("Закончить смену", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+        if (state.phase != AssignmentPhase.FINISHED) {
+            item(key = "dispatcher") {
+                CallDispatcherButton(text = "Проблема с рейсом — позвонить диспетчеру")
+            }
+        }
+    }
+}
+
+// Фото не получилось. Закрыть рейс всё равно надо — иначе встаёт смена.
+// Причина обязательна: она уйдёт в 1С комментарием, чтобы отсутствие
+// накладной было объяснено.
 @Composable
 private fun NoPhotoDialog(
     onRetryPhoto: () -> Unit,
@@ -287,8 +307,7 @@ private fun NoPhotoDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Можно переснять или закрыть разгрузку без фото, " +
-                        "указав причину.",
+                    text = "Можно переснять или закрыть разгрузку без фото, указав причину.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 OutlinedTextField(
@@ -303,10 +322,7 @@ private fun NoPhotoDialog(
             Button(onClick = onRetryPhoto) { Text("Переснять") }
         },
         dismissButton = {
-            TextButton(
-                onClick = { onConfirmWithoutPhoto(reason) },
-                enabled = reason.isNotBlank()
-            ) {
+            TextButton(onClick = { onConfirmWithoutPhoto(reason) }, enabled = reason.isNotBlank()) {
                 Text("Без фото")
             }
         }
@@ -315,14 +331,14 @@ private fun NoPhotoDialog(
 
 @Composable
 private fun TripRow(
-    state: TripUiState,
+    state: TripProgress,
     isActive: Boolean,
-    // Не null — отмечать этапы сейчас нельзя (смена не начата или закончена).
+    // Не null — отмечать этапы сейчас нельзя (смена не начата, закончена
+    // или разнарядка отменена).
     lockedHint: String?,
     expanded: Boolean,
     onToggle: () -> Unit,
     onAction: (String) -> Unit,
-    onSryv: () -> Unit,
     onStepBack: () -> Unit
 ) {
     val activeColor = statusActiveColor()
@@ -345,43 +361,35 @@ private fun TripRow(
 
             if (expanded) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                ExpandedDetails(
-                    state = state,
-                    lockedHint = lockedHint,
-                    onAction = onAction,
-                    onSryv = onSryv,
-                    onStepBack = onStepBack
-                )
+                ExpandedDetails(state = state, lockedHint = lockedHint, onAction = onAction, onStepBack = onStepBack)
             }
         }
     }
 }
 
 @Composable
-private fun CollapsedHeader(state: TripUiState, isActive: Boolean) {
+private fun CollapsedHeader(state: TripProgress, isActive: Boolean) {
     val trip = state.trip
     val activeColor = statusActiveColor()
-    val completed = state.doneTypes.contains(EventTypes.RAZGRUZILSYA)
-    val failed = state.isCancelled || state.doneTypes.contains(EventTypes.SRYV)
+    val failed = state.isCancelled || state.isFailed
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        // Точка маршрута: завершённая — галочка, сорванная/снятая — крестик,
-        // активная — номер на зелёном, впереди — номер на сером (как раньше).
-        // Цвет не единственный признак — рядом всегда статус словом.
+        // Точка маршрута: выполненный — галочка, снятый — крестик, активный —
+        // номер на зелёном, впереди — номер на сером. Рядом всегда статус словом.
         Surface(
             shape = CircleShape,
             color = when {
-                completed || isActive -> activeColor
+                state.isCompleted || isActive -> activeColor
                 failed -> MaterialTheme.colorScheme.error
                 else -> MaterialTheme.colorScheme.outline
             },
-            contentColor = if (completed || failed || isActive) Color.White else MaterialTheme.colorScheme.onSurface,
+            contentColor = if (state.isCompleted || failed || isActive) Color.White else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(40.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 when {
-                    completed -> Icon(Icons.Filled.Check, contentDescription = "Завершена")
-                    failed -> Icon(Icons.Filled.Close, contentDescription = "Сорвана")
+                    state.isCompleted -> Icon(Icons.Filled.Check, contentDescription = "Выполнен")
+                    failed -> Icon(Icons.Filled.Close, contentDescription = "Снят")
                     else -> Text(text = trip.order.toString(), style = MaterialTheme.typography.titleMedium)
                 }
             }
@@ -403,10 +411,7 @@ private fun CollapsedHeader(state: TripUiState, isActive: Boolean) {
                     color = tripStatusColor(state, isActive, activeColor)
                 )
                 planTimeLabel(trip)?.let { plan ->
-                    Text(
-                        text = " · $plan",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Text(text = " · $plan", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -415,25 +420,16 @@ private fun CollapsedHeader(state: TripUiState, isActive: Boolean) {
 
 @Composable
 private fun ExpandedDetails(
-    state: TripUiState,
+    state: TripProgress,
     lockedHint: String?,
     onAction: (String) -> Unit,
-    onSryv: () -> Unit,
     onStepBack: () -> Unit
 ) {
     val trip = state.trip
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        LabeledField(
-            label = "Погрузка",
-            value = pointLabel(trip.loadPoint),
-            onClick = navigateAction(trip.loadPoint)
-        )
-        LabeledField(
-            label = "Разгрузка",
-            value = pointLabel(trip.unloadPoint),
-            onClick = navigateAction(trip.unloadPoint)
-        )
+        LabeledField(label = "Погрузка", value = pointLabel(trip.loadPoint), onClick = navigateAction(trip.loadPoint))
+        LabeledField(label = "Разгрузка", value = pointLabel(trip.unloadPoint), onClick = navigateAction(trip.unloadPoint))
         trip.customer?.takeIf { it.isNotBlank() }?.let { LabeledField(label = "Заказчик", value = it) }
         trip.trailer.plate?.takeIf { it.isNotBlank() }?.let { LabeledField(label = "Прицеп", value = it) }
         trip.cargo.composition?.takeIf { it.isNotBlank() }?.let { LabeledField(label = "Груз", value = it) }
@@ -442,38 +438,25 @@ private fun ExpandedDetails(
         cargoValue(trip.cargo.volume, "м³")?.let { LabeledField(label = "Объём", value = it) }
     }
 
-    if (state.isCancelled) return
-
-    if (state.doneTypes.contains(EventTypes.RAZGRUZILSYA)) {
-        Text(text = "Рейс завершён", color = CompletedGreen, fontWeight = FontWeight.SemiBold)
-        return
-    }
-    if (state.doneTypes.contains(EventTypes.SRYV)) {
-        Text(
-            text = "Рейс сорван",
-            color = MaterialTheme.colorScheme.error,
-            fontWeight = FontWeight.SemiBold
-        )
-        return
+    when {
+        // Снят диспетчером — даже если по нему уже были отметки (так 1С
+        // снимает незавершённые рейсы при замене экипажа).
+        state.isCancelled -> {
+            Text(text = "Рейс снят диспетчером", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+            return
+        }
+        state.isCompleted -> {
+            Text(text = "Рейс выполнен", color = CompletedGreen, fontWeight = FontWeight.SemiBold)
+            return
+        }
+        state.isFailed -> {
+            Text(text = "Рейс сорван", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+            return
+        }
     }
 
     if (lockedHint != null) {
-        Text(
-            text = lockedHint,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        // Если шаг всё же успел записаться до начала смены (например, с
-        // версии до этого фикса) — дать его откатить, а не оставлять
-        // висеть без возможности исправить.
-        if (state.doneTypes.isNotEmpty()) {
-            OutlinedButton(
-                onClick = onStepBack,
-                modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)
-            ) {
-                Text("Отмена", style = MaterialTheme.typography.labelLarge)
-            }
-        }
+        Text(text = lockedHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
 
@@ -487,43 +470,25 @@ private fun ExpandedDetails(
         }
     }
 
-    // Есть хотя бы один пройденный шаг цикла (RAZGRUZILSYA/SRYV сюда не
-    // доходят — при них выше уже return) — значит случайный повторный тап
-    // мог продвинуть рейс дальше, чем нужно. «Отмена» откатывает последний
-    // шаг и остаётся в «Истории» с пометкой, а не пропадает бесследно.
+    // Случайный лишний тап мог продвинуть рейс дальше, чем нужно. «Отмена»
+    // откатывает последний шаг (пока он не ушёл в 1С) и остаётся в
+    // «Истории» с пометкой, а не пропадает бесследно.
     if (state.doneTypes.isNotEmpty()) {
-        OutlinedButton(
-            onClick = onStepBack,
-            modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)
-        ) {
+        OutlinedButton(onClick = onStepBack, modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)) {
             Text("Отмена", style = MaterialTheme.typography.labelLarge)
         }
     }
-
-    // Срыв — редкое и тяжёлое действие, поэтому визуально слабее основного,
-    // чтобы в него не попадали случайно.
-    TextButton(
-        onClick = onSryv,
-        modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)
-    ) {
-        Text("Рейс сорван", color = MaterialTheme.colorScheme.error)
-    }
 }
 
-// Открываем адрес общим geo: intent'ом без привязки к конкретному
-// приложению — в контракте с 1С координат точек нет, только текстовый
-// адрес, а geo:...?q= умеют искать по тексту и Яндекс.Карты, и 2ГИС, и
-// Google Maps. Если на телефоне один навигатор — откроется сразу, если
-// несколько — Android сам покажет системный выбор (и запомнит «Всегда»,
-// если водитель поставит галку); свой выбор в приложении не заводим,
-// системный уже решает эту задачу.
+// Общий geo: intent без привязки к приложению — в контракте с 1С только
+// текстовый адрес, а geo:...?q= понимают и Яндекс.Карты, и 2ГИС, и Google
+// Maps. Если навигаторов несколько, Android сам покажет выбор.
 @Composable
 private fun navigateAction(point: PointDto): (() -> Unit)? {
     val context = LocalContext.current
     val address = firstNotBlank(point.address, point.name) ?: return null
     return {
-        val encoded = Uri.encode(address)
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encoded"))
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(address)}"))
         runCatching { context.startActivity(intent) }
     }
 }
@@ -539,44 +504,18 @@ private fun planTimeLabel(trip: TripDto): String? {
     }
 }
 
-private fun tripStatusLabel(state: TripUiState, isActive: Boolean): String = when {
-    state.isCancelled -> "снято"
-    state.doneTypes.contains(EventTypes.RAZGRUZILSYA) -> "завершена"
-    state.doneTypes.contains(EventTypes.SRYV) -> "сорвана"
+private fun tripStatusLabel(state: TripProgress, isActive: Boolean): String = when {
+    state.isCancelled -> "снят"
+    state.isCompleted -> "выполнен"
+    state.isFailed -> "сорван"
     isActive -> "сейчас"
     else -> "ожидает"
 }
 
 @Composable
-private fun tripStatusColor(state: TripUiState, isActive: Boolean, activeColor: Color): Color = when {
-    state.isCancelled || state.doneTypes.contains(EventTypes.SRYV) -> MaterialTheme.colorScheme.error
-    state.doneTypes.contains(EventTypes.RAZGRUZILSYA) -> CompletedGreen
+private fun tripStatusColor(state: TripProgress, isActive: Boolean, activeColor: Color): Color = when {
+    state.isCancelled || state.isFailed -> MaterialTheme.colorScheme.error
+    state.isCompleted -> CompletedGreen
     isActive -> activeColor
     else -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-@Composable
-private fun SryvDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
-    var comment by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Причина срыва") },
-        text = {
-            OutlinedTextField(
-                value = comment,
-                onValueChange = { comment = it },
-                label = { Text("Комментарий (обязательно)") },
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(comment) }, enabled = comment.isNotBlank()) {
-                Text("Подтвердить")
-            }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("Отмена") }
-        }
-    )
 }

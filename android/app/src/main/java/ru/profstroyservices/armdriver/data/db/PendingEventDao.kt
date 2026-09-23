@@ -67,6 +67,15 @@ interface PendingEventDao {
     )
     suspend fun exists(assignmentId: String, type: String, tripId: String?): Boolean
 
+    // Ознакомление дедуплицируется по версии разнарядки: новая версия
+    // требует нового Ознакомления (1С сбрасывает прежнее), старое не мешает.
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM pending_events " +
+            "WHERE assignmentId = :assignmentId AND type = :type " +
+            "AND assignmentVersion = :assignmentVersion AND cancelled = 0)"
+    )
+    suspend fun existsForVersion(assignmentId: String, type: String, assignmentVersion: Int): Boolean
+
     // Для кнопки «Отмена» по этапу рейса: находит ещё не отправленную и ещё
     // не отменённую запись конкретного шага. Если её нет — шаг уже отправлен
     // в 1С, и отменить нечего (инвариант 2).

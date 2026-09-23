@@ -1,5 +1,6 @@
 package ru.profstroyservices.armdriver.ui.assignment
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,25 +20,29 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
 
-// Общий вход для корня таба «Разнарядка» и таба «Мои рейсы»: обе вкладки
-// смотрят на один и тот же список разнарядок водителя за окно (см.
-// ASSIGNMENT_LIST_WINDOW_HOURS на backend) и различаются только тем, куда
-// ведут — на карточку разнарядки или сразу на roadmap. Если разнарядка
-// одна (обычный случай), список не показываем вообще — сразу переходим
-// дальше через onSingle; список-пикер нужен только когда их несколько.
+enum class GateMode {
+    // Вкладка «Разнарядка»: одна разнарядка — сразу она. Несколько — всегда
+    // список (текущая первой): при замене экипажа 1С присылает новую рядом
+    // со старой, и водитель должен видеть обе, а не застрять на одной.
+    ASSIGNMENTS,
+
+    // Вкладка «Мои рейсы»: только рейсы текущей разнарядки. Нет текущей —
+    // пусто, пока диспетчер не пришлёт новую.
+    TRIPS
+}
+
 @Composable
 fun AssignmentsGate(
-    onSingle: (assignmentId: String) -> Unit,
+    mode: GateMode,
+    onOpen: (assignmentId: String) -> Unit,
     onSelectFromList: (assignmentId: String) -> Unit,
-    // Только для таба «Мои рейсы»: если смена уже начата по одной из
-    // разнарядок, список-пикер незачем показывать — водителю нужны только
-    // её рейсы, а не выбор из всех разнарядок за день заново.
-    autoSelectActive: Boolean = false,
     viewModel: AssignmentsListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -46,26 +51,28 @@ fun AssignmentsGate(
 
     Scaffold { innerPadding ->
         when (val state = uiState) {
-            is AssignmentsListUiState.Loading -> AssignmentsListLoading(
-                modifier = Modifier.padding(innerPadding)
-            )
-
-            is AssignmentsListUiState.Error -> AssignmentsListError(
-                message = state.message,
-                modifier = Modifier.padding(innerPadding)
-            )
+            is AssignmentsListUiState.Loading -> Column(
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) { CircularProgressIndicator() }
 
             is AssignmentsListUiState.Loaded -> {
-                // Текущая смена — последняя начатая из открытых, так же как в
-                // ShiftViewModel, иначе плашка и рейсы показывали бы разное.
-                val target = state.assignments.singleOrNull()
-                    ?: state.assignments.takeIf { autoSelectActive }
-                        ?.filter { it.openShiftStartedAt != null }
-                        ?.maxByOrNull { it.openShiftStartedAt!! }
-                if (target != null) {
-                    LaunchedEffect(target.id) { onSingle(target.id) }
-                } else {
-                    AssignmentsListContent(
+                val target = when (mode) {
+                    GateMode.TRIPS -> state.current?.id
+                    GateMode.ASSIGNMENTS -> state.assignments.singleOrNull()?.id
+                }
+                when {
+                    target != null -> LaunchedEffect(target) { onOpen(target) }
+                    mode == GateMode.TRIPS -> EmptyState(
+                        text = "Нет активной разнарядки.\nРейсы появятся здесь, когда диспетчер пришлёт новую.",
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                    state.assignments.isEmpty() -> EmptyState(
+                        text = "Разнарядок пока нет",
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                    else -> AssignmentsList(
                         assignments = state.assignments,
                         onSelect = onSelectFromList,
                         modifier = Modifier.padding(innerPadding)
@@ -77,27 +84,27 @@ fun AssignmentsGate(
 }
 
 @Composable
-private fun AssignmentsListContent(
+private fun EmptyState(text: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(text = text, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+private fun AssignmentsList(
     assignments: List<AssignmentSummary>,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (assignments.isEmpty()) {
-        Column(
-            modifier = modifier.fillMaxSize().padding(20.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = "Разнарядок пока нет", style = MaterialTheme.typography.bodyMedium)
-        }
-        return
-    }
-
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(assignments) { summary ->
+        items(assignments, key = { it.id }) { summary ->
             AssignmentSummaryCard(summary = summary, onClick = { onSelect(summary.id) })
         }
     }
@@ -112,35 +119,16 @@ private fun AssignmentSummaryCard(summary: AssignmentSummary, onClick: () -> Uni
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
             contentColor = MaterialTheme.colorScheme.onSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = if (summary.isCurrent) BorderStroke(2.dp, statusActiveColor()) else null
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = "Разнарядка № ${summary.number ?: summary.id}",
-                style = MaterialTheme.typography.titleMedium
-            )
+            Text(text = "Разнарядка № ${summary.label}", style = MaterialTheme.typography.titleMedium)
             Text(text = "Дата выезда: ${summary.departureDay}", style = MaterialTheme.typography.bodyMedium)
-            Text(text = summary.statusLabel, style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = if (summary.isCurrent) "текущая · ${summary.statusLabel}" else summary.statusLabel,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
-}
-
-@Composable
-private fun AssignmentsListLoading(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        CircularProgressIndicator()
-    }
-}
-
-@Composable
-private fun AssignmentsListError(message: String, modifier: Modifier = Modifier) {
-    Text(
-        text = message,
-        color = MaterialTheme.colorScheme.error,
-        modifier = modifier.padding(20.dp)
-    )
 }

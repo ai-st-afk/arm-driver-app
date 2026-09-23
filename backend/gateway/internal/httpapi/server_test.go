@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -165,12 +166,105 @@ func TestListAssignmentsReturnsAllForDriverNotJustLatest(t *testing.T) {
 // recordingSender — тестовый push.Sender, который запоминает вид каждого
 // уведомления вместо реальной отправки в FCM.
 type recordingSender struct {
-	kinds []push.Kind
+	kinds   []push.Kind
+	drivers []string
 }
 
 func (s *recordingSender) SendAssignment(_ context.Context, notification push.AssignmentNotification) error {
 	s.kinds = append(s.kinds, notification.Kind)
+	s.drivers = append(s.drivers, notification.DriverID)
 	return nil
+}
+
+// 1С, плановая замена экипажа: та же разнарядка новой версией с другим
+// <Водитель>. Прежний водитель должен увидеть её отменённой (и получить
+// пуш), а не потерять молча; новый — как новую задачу.
+func TestAssignmentReassignedToAnotherDriverShownCancelledToPrevious(t *testing.T) {
+	cfg := config.Config{
+		GatewayToken:                    "one-c-token",
+		MobileToken:                     "mobile-token",
+		AssignmentReminderFirstMinutes:  30,
+		AssignmentReminderSecondMinutes: 50,
+		AssignmentListWindowHours:       48,
+	}
+	cfg.DataDir = t.TempDir()
+	store, err := storage.New(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("storage init: %v", err)
+	}
+	sender := &recordingSender{}
+	api := NewServer(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), http.DefaultClient, store, sender)
+
+	const (
+		assignmentID = "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f"
+		oldDriver    = "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162"
+		newDriver    = "9d8c7b6a-5f4e-4d3c-2b1a-0f9e8d7c6b5a"
+	)
+	post := func(version int, driverID string) {
+		t.Helper()
+		body := `<?xml version="1.0" encoding="UTF-8"?>
+<Разнарядка>
+  <Идентификатор>` + assignmentID + `</Идентификатор>
+  <Версия>` + strconv.Itoa(version) + `</Версия>
+  <Номер>ПрТр-000700</Номер>
+  <Статус>Активна</Статус>
+  <Водитель><Идентификатор>` + driverID + `</Идентификатор><ФИО>Водитель</ФИО></Водитель>
+  <Машина><Идентификатор>7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d</Идентификатор><Наименование>КАМАЗ 65115</Наименование><ГосНомер>А123ВС43</ГосНомер></Машина>
+</Разнарядка>`
+		req := httptest.NewRequest(http.MethodPost, "/api/1c/assignments", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/xml; charset=utf-8")
+		req.Header.Set("X-Auth-Token", "one-c-token")
+		rec := httptest.NewRecorder()
+		api.Routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("assignment post v%d status = %d, body = %s", version, rec.Code, rec.Body.String())
+		}
+	}
+	get := func(path string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("X-Auth-Token", "mobile-token")
+		rec := httptest.NewRecorder()
+		api.Routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, body = %s", path, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	post(1, oldDriver)
+	post(2, newDriver)
+
+	oldList := get("/api/mobile/assignments?driver_id=" + oldDriver)
+	if !strings.Contains(oldList, `"status":"Отменена"`) || !strings.Contains(oldList, reassignedReason) {
+		t.Fatalf("previous driver must see the assignment cancelled, got: %s", oldList)
+	}
+	newList := get("/api/mobile/assignments?driver_id=" + newDriver)
+	if !strings.Contains(newList, `"status":"Активна"`) || strings.Contains(newList, reassignedReason) {
+		t.Fatalf("new driver must see the assignment active, got: %s", newList)
+	}
+	oldByID := get("/api/mobile/assignments/" + assignmentID + "?driver_id=" + oldDriver)
+	if !strings.Contains(oldByID, `"status":"Отменена"`) {
+		t.Fatalf("previous driver by id must see it cancelled, got: %s", oldByID)
+	}
+	if byID := get("/api/mobile/assignments/" + assignmentID); !strings.Contains(byID, `"status":"Активна"`) {
+		t.Fatalf("without driver_id the document is returned as is, got: %s", byID)
+	}
+
+	wantKinds := []push.Kind{push.KindNew, push.KindNew, push.KindCancelled}
+	wantDrivers := []string{oldDriver, newDriver, oldDriver}
+	if !slices.Equal(sender.kinds, wantKinds) || !slices.Equal(sender.drivers, wantDrivers) {
+		t.Fatalf("pushes = %v to %v, want %v to %v", sender.kinds, sender.drivers, wantKinds, wantDrivers)
+	}
+
+	// Напоминания «не принята» — теперь новому водителю, не прежнему.
+	due, err := store.DueReminders(time.Now().UTC().Add(31 * time.Minute))
+	if err != nil {
+		t.Fatalf("due reminders: %v", err)
+	}
+	if len(due) != 1 || due[0].DriverID != newDriver {
+		t.Fatalf("reminders = %+v, want one for the new driver", due)
+	}
 }
 
 func TestAssignmentRevisionAfterAcceptanceDoesNotRestartReminders(t *testing.T) {
