@@ -109,9 +109,13 @@ class AssignmentStateTest {
     }
 
     // Замена экипажа (1С): незавершённые рейсы старой разнарядки приходят
-    // «Отменена», в том числе уже начатый — он закрыт, а не висит.
+    // «Отменена», в том числе уже начатый — он закрыт, а не висит. 1С
+    // подтвердила: ОкончаниеСмены не привязано к рейсам и его по-прежнему
+    // можно (и нужно предлагать) отправить самому — кнопку не прячем, даже
+    // когда все рейсы сняты диспетчером. Диспетчер закрывает смену вручную
+    // только если водитель сам этого не сделает.
     @Test
-    fun tripCancelledByDispatcherMidwayIsClosed() {
+    fun tripCancelledByDispatcherMidwayIsClosedButShiftStillEndableByDriver() {
         val assignment = assignment("A", version = 2, trips = listOf(trip("A-t1", 1), trip("A-t2", 2, "Отменена")))
         val state = assignmentState(
             assignment,
@@ -124,9 +128,23 @@ class AssignmentStateTest {
         val cancelledTrip = state.trips.single { it.trip.id == "A-t2" }
         assertTrue(cancelledTrip.isResolved)
         assertNull(cancelledTrip.nextAction)
-        // 1С сама закрыла смену: наше ОкончаниеСмены перезаписало бы время.
+        assertEquals(AssignmentPhase.IN_SHIFT, state.phase)
+        assertTrue(state.hasTripsCancelledByDispatcher)
+        assertTrue(state.canEndShift)
+    }
+
+    @Test
+    fun driverCanStillEndShiftAfterSendingOkonchanieSmeny() {
+        val assignment = assignment("A", version = 2, trips = listOf(trip("A-t1", 1, "Отменена"), trip("A-t2", 2, "Отменена")))
+        val state = assignmentState(
+            assignment,
+            listOf(
+                event("A", EventTypes.OZNAKOMLENIE),
+                event("A", EventTypes.NACHALO_SMENY),
+                event("A", EventTypes.OKONCHANIE_SMENY)
+            )
+        )
         assertEquals(AssignmentPhase.FINISHED, state.phase)
-        assertTrue(state.endedByDispatcher)
         assertFalse(state.canEndShift)
     }
 
@@ -221,18 +239,26 @@ class AssignmentStateTest {
         assertNull(currentAssignment(listOf(finished, cancelled)))
     }
 
-    // Замена экипажа: старая (незавершённые сняты, смену закрыла 1С) и новая
-    // пришли почти разом. Текущей сразу становится новая — без лишнего
-    // ОкончаниеСмены по старой.
+    // Замена экипажа: старая (незавершённые сняты) и новая пришли почти
+    // разом. Текущей остаётся старая, пока водитель сам не закончит по ней
+    // смену (1С подтвердила: кнопку не прячем, водитель заканчивает сам,
+    // время с телефона точнее вписанного диспетчером вручную) — только
+    // после этого текущей становится новая.
     @Test
-    fun crewReplacementMakesNewAssignmentCurrentImmediately() {
+    fun crewReplacementKeepsOldCurrentUntilDriverEndsShift() {
         val old = assignment("OLD", version = 2, trips = listOf(trip("OLD-t1", 1), trip("OLD-t2", 2, "Отменена")))
         val new = assignment("NEW", trips = listOf(trip("NEW-t1", 1)))
         val oldEvents = listOf(event("OLD", EventTypes.OZNAKOMLENIE), event("OLD", EventTypes.NACHALO_SMENY)) +
             completeTrip("OLD", "OLD-t1")
 
-        val states = listOf(assignmentState(old, oldEvents), assignmentState(new, emptyList()))
-        assertEquals("NEW", currentAssignment(states)?.id)
-        assertFalse(states.first().canEndShift)
+        val before = listOf(assignmentState(old, oldEvents), assignmentState(new, emptyList()))
+        assertEquals("OLD", currentAssignment(before)?.id)
+        assertTrue(before.first().canEndShift)
+
+        val after = listOf(
+            assignmentState(old, oldEvents + event("OLD", EventTypes.OKONCHANIE_SMENY)),
+            assignmentState(new, emptyList())
+        )
+        assertEquals("NEW", currentAssignment(after)?.id)
     }
 }

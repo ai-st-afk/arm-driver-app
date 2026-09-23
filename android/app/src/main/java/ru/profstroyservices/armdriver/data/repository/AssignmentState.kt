@@ -41,9 +41,9 @@ data class AssignmentState(
     // Ознакомление было, но по прежней версии: 1С сбросила его, без нового
     // она отобьёт НачалоСмены («Смена начата без ознакомления с маршрутом»).
     val needsReacknowledge: Boolean,
-    // Все незавершённые рейсы сняты диспетчером во время смены (замена
-    // экипажа) — смену 1С закрыла сама.
-    val endedByDispatcher: Boolean = false,
+    // Хотя бы один рейс снят диспетчером (замена экипажа и т.п.) — просто
+    // для текста на экране, на кнопку «Закончить смену» не влияет (см. ниже).
+    val hasTripsCancelledByDispatcher: Boolean = false,
     // Когда данные последний раз реально пришли с шлюза — «Обновлено в HH:MM».
     val updatedAt: Long? = null
 ) {
@@ -74,16 +74,8 @@ fun assignmentState(assignment: AssignmentDto, events: List<PendingEventEntity>)
         .sortedBy { it.order }
         .map { trip -> TripProgress(trip, active.filter { it.tripId == trip.id }.map { it.type }.toSet()) }
 
-    // 1С (5.4): при замене экипажа незавершённые ездки старой разнарядки
-    // снимаются, а окончание смены 1С проставляет сама. ОкончаниеСмены в 1С
-    // пишется «последнее пришедшее» — наше позднее нажатие перезаписало бы
-    // верное время. Поэтому такая смена считается завершённой диспетчером,
-    // водитель её не закрывает.
-    val endedByDispatcher = has(EventTypes.NACHALO_SMENY) && !has(EventTypes.OKONCHANIE_SMENY) &&
-        !cancelled && trips.isNotEmpty() && trips.all { it.isResolved } && trips.any { it.isCancelled }
-
     val phase = when {
-        has(EventTypes.OKONCHANIE_SMENY) || endedByDispatcher -> AssignmentPhase.FINISHED
+        has(EventTypes.OKONCHANIE_SMENY) -> AssignmentPhase.FINISHED
         has(EventTypes.NACHALO_SMENY) -> AssignmentPhase.IN_SHIFT
         cancelled -> AssignmentPhase.CANCELLED
         ackCurrent -> AssignmentPhase.ACCEPTED
@@ -99,7 +91,7 @@ fun assignmentState(assignment: AssignmentDto, events: List<PendingEventEntity>)
         trips = trips,
         shiftStartedAt = shiftStartedAt,
         needsReacknowledge = phase == AssignmentPhase.NEW && acks.isNotEmpty(),
-        endedByDispatcher = endedByDispatcher
+        hasTripsCancelledByDispatcher = trips.any { it.isCancelled }
     )
 }
 

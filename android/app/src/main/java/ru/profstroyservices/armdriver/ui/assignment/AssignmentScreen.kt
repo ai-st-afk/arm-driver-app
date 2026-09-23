@@ -160,7 +160,7 @@ fun statusLabel(state: AssignmentState): String = when (state.phase) {
     AssignmentPhase.NEW -> if (state.needsReacknowledge) "изменена" else "не принята"
     AssignmentPhase.ACCEPTED -> "принята"
     AssignmentPhase.IN_SHIFT -> if (state.cancelledByDispatcher) "отменена диспетчером" else "смена идёт"
-    AssignmentPhase.FINISHED -> if (state.endedByDispatcher) "рейсы сняты диспетчером" else "смена завершена"
+    AssignmentPhase.FINISHED -> "смена завершена"
     AssignmentPhase.CANCELLED -> "отменена диспетчером"
 }
 
@@ -254,7 +254,24 @@ private fun AssignmentContent(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold
                 )
+                // Диспетчер мог снять часть рейсов сам (замена экипажа и
+                // т.п.) — не блокирует «Закончить смену», просто поясняет,
+                // откуда взялась галочка/крестик у рейса, которого водитель
+                // не касался.
+                if (state.hasTripsCancelledByDispatcher) {
+                    Text(
+                        text = "Часть рейсов сняли диспетчером.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
+            // 1С: ОкончаниеСмены не привязано к рейсам, только к начатой
+            // смене. Пока рейсы не закрыты — кнопки нет: разгрузка без
+            // ОкончаниеСмены это нормально, а наоборот — нет (запись).
+            // Когда закрыты все (сами или диспетчером) — предлагаем сразу,
+            // не прячем: время с телефона 1С считает точнее вписанного
+            // диспетчером вручную.
             if (state.canEndShift) {
                 Button(
                     onClick = onEndShift,
@@ -272,11 +289,7 @@ private fun AssignmentContent(
         }
 
         AssignmentPhase.FINISHED -> Text(
-            text = if (state.endedByDispatcher) {
-                "Диспетчер снял оставшиеся рейсы, смена по этой разнарядке закрыта."
-            } else {
-                "Смена завершена. ${tripsProgressLabel(state)}"
-            },
+            text = "Смена завершена. ${tripsProgressLabel(state)}",
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold
         )

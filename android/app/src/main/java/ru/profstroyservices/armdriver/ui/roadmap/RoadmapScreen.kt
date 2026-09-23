@@ -236,10 +236,13 @@ private fun RoadmapList(
         state.cancelledByDispatcher && state.phase == AssignmentPhase.IN_SHIFT ->
             "Разнарядка отменена диспетчером. Закончите смену."
         state.cancelledByDispatcher -> "Разнарядка отменена диспетчером."
-        state.endedByDispatcher -> "Диспетчер снял оставшиеся рейсы, смена по этой разнарядке закрыта."
         state.phase == AssignmentPhase.FINISHED -> "Смена по этой разнарядке закончена."
         state.phase != AssignmentPhase.IN_SHIFT ->
             "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
+        // Рейсов не осталось (выполнены или сняты диспетчером), кнопка
+        // «Закончить смену» уже видна ниже — 1С просит не прятать её и явно
+        // предложить водителю закрыть смену, а не ждать диспетчера.
+        state.canEndShift -> "Активных рейсов не осталось. Не забудьте закончить смену."
         else -> null
     }
     val lockedHint = when {
