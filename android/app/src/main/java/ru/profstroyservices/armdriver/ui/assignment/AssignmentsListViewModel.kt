@@ -71,6 +71,7 @@ class AssignmentsListViewModel @Inject constructor(
     private suspend fun AssignmentDto.toSummary(): AssignmentSummary {
         val events = eventQueue.observeForAssignment(id).first()
         val statusLabel = when {
+            events.any { it.type == EventTypes.OTKAZ_OT_RAZNARYADKI && !it.cancelled } -> "отказался от разнарядки"
             events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled } -> "смена завершена"
             events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled } -> "смена идёт"
             events.any { it.type == EventTypes.OZNAKOMLENIE && !it.cancelled } -> "ознакомлен"

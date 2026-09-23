@@ -26,6 +26,9 @@ sealed interface AssignmentUiState {
         val acknowledged: Boolean,
         val shiftStarted: Boolean,
         val shiftEnded: Boolean,
+        // Водитель отказался от разнарядки сам, до начала смены (не путать
+        // со «Срыв» — тот про конкретный рейс и только после начала смены).
+        val cancelledByDriver: Boolean,
         val updatedAt: Long?
     ) : AssignmentUiState
 }
@@ -91,6 +94,7 @@ class AssignmentViewModel @Inject constructor(
             acknowledged = events.any { it.type == EventTypes.OZNAKOMLENIE && !it.cancelled },
             shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled },
             shiftEnded = events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled },
+            cancelledByDriver = events.any { it.type == EventTypes.OTKAZ_OT_RAZNARYADKI && !it.cancelled },
             updatedAt = assignmentRepository.getCachedUpdatedAt(assignment.id)
         )
     }
@@ -117,6 +121,25 @@ class AssignmentViewModel @Inject constructor(
                 type = EventTypes.NACHALO_SMENY,
                 driverId = id,
                 assignmentId = state.assignment.id
+            )
+            updateContent(state.assignment)
+            queue.flush()
+        }
+    }
+
+    // Водитель отказывается от разнарядки сам, до начала смены — не звонит
+    // диспетчеру, а сразу пишет причину. Доступно только пока смена не
+    // начата: после НачалоСмены это уже другая ситуация («Срыв» по рейсу).
+    fun onCancelAssignment(reason: String) {
+        val state = _uiState.value as? AssignmentUiState.Content ?: return
+        if (state.shiftStarted) return
+        val id = driverId ?: return
+        viewModelScope.launch {
+            eventQueue.enqueue(
+                type = EventTypes.OTKAZ_OT_RAZNARYADKI,
+                driverId = id,
+                assignmentId = state.assignment.id,
+                comment = reason
             )
             updateContent(state.assignment)
             queue.flush()

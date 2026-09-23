@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -21,12 +22,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -55,6 +62,7 @@ fun AssignmentScreen(
     viewModel: AssignmentViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var showCancelDialog by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
@@ -101,11 +109,51 @@ fun AssignmentScreen(
                     state = state,
                     onAcknowledge = viewModel::onAcknowledge,
                     onStartShift = viewModel::onStartShift,
-                    onEndShift = viewModel::onEndShift
+                    onEndShift = viewModel::onEndShift,
+                    onRequestCancel = { showCancelDialog = true }
                 )
             }
         }
     }
+
+    if (showCancelDialog) {
+        CancelAssignmentDialog(
+            onConfirm = { reason ->
+                viewModel.onCancelAssignment(reason)
+                showCancelDialog = false
+            },
+            onDismiss = { showCancelDialog = false }
+        )
+    }
+}
+
+// Отказ от разнарядки самим водителем, до начала смены — не путать со
+// «Срыв» на экране рейсов (тот про конкретный рейс, после начала смены).
+// Причина обязательна: она уйдёт в 1С комментарием к событию.
+@Composable
+private fun CancelAssignmentDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var reason by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Причина отказа") },
+        text = {
+            OutlinedTextField(
+                value = reason,
+                onValueChange = { reason = it },
+                label = { Text("Комментарий (обязательно)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(reason) }, enabled = reason.isNotBlank()) {
+                Text("Подтвердить")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("Отмена") }
+        }
+    )
 }
 
 @Composable
@@ -129,7 +177,8 @@ private fun AssignmentContent(
     state: AssignmentUiState.Content,
     onAcknowledge: () -> Unit,
     onStartShift: () -> Unit,
-    onEndShift: () -> Unit
+    onEndShift: () -> Unit,
+    onRequestCancel: () -> Unit
 ) {
     val assignment: AssignmentDto = state.assignment
 
@@ -154,6 +203,17 @@ private fun AssignmentContent(
             text = "Обновлено в ${formatUpdatedAt(updatedAt)}",
             style = MaterialTheme.typography.bodySmall
         )
+    }
+
+    // Отказался сам — дальше по этой разнарядке делать нечего: Ознакомлен/
+    // Начать смену теряют смысл, показываем только статус.
+    if (state.cancelledByDriver) {
+        Text(
+            text = "Вы отказались от этой разнарядки.",
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        return
     }
 
     Button(
@@ -196,6 +256,16 @@ private fun AssignmentContent(
                 style = MaterialTheme.typography.bodySmall
             )
         }
+    } else {
+        // Доступно только до начала смены — после НачалоСмены отказ от
+        // задания уже не имеет смысла, там свои шаги (Срыв по рейсу).
+        // Визуально слабее основных кнопок — редкое и тяжёлое действие.
+        TextButton(
+            onClick = onRequestCancel,
+            modifier = Modifier.fillMaxWidth().height(ButtonHeight)
+        ) {
+            Text("Отказаться от разнарядки", color = MaterialTheme.colorScheme.error)
+        }
     }
 }
 
@@ -203,6 +273,7 @@ private fun formatUpdatedAt(millis: Long): String =
     SimpleDateFormat("HH:mm", Locale("ru")).format(Date(millis))
 
 private fun shiftStatusLabel(state: AssignmentUiState.Content): String = when {
+    state.cancelledByDriver -> "отказался от разнарядки"
     state.shiftEnded -> "смена завершена"
     state.shiftStarted -> "смена идёт"
     state.acknowledged -> "ознакомлен"
