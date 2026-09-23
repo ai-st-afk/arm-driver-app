@@ -132,7 +132,10 @@ fun MainScaffold(
                         // записи с ним в стеке не будет вообще.
                         val cameFromList = navController.previousBackStackEntry
                             ?.destination?.route == MainRoutes.ASSIGNMENTS
-                        AssignmentScreen(onBack = { navController.popBackStack() }.takeIf { cameFromList })
+                        val onBack: (() -> Unit)? = if (cameFromList) {
+                            { navController.popBackStack() }
+                        } else null
+                        AssignmentScreen(onBack = onBack)
                     }
                 }
 
@@ -153,7 +156,10 @@ fun MainScaffold(
                     ) {
                         val cameFromList = navController.previousBackStackEntry
                             ?.destination?.route == MainRoutes.TRIPS
-                        RoadmapScreen(onBack = { navController.popBackStack() }.takeIf { cameFromList })
+                        val onBack: (() -> Unit)? = if (cameFromList) {
+                            { navController.popBackStack() }
+                        } else null
+                        RoadmapScreen(onBack = onBack)
                     }
                 }
 
