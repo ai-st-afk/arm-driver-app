@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -348,17 +350,29 @@ private fun TripRow(
 private fun CollapsedHeader(state: TripUiState, isActive: Boolean) {
     val trip = state.trip
     val activeColor = statusActiveColor()
+    val completed = state.doneTypes.contains(EventTypes.RAZGRUZILSYA)
+    val failed = state.isCancelled || state.doneTypes.contains(EventTypes.SRYV)
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        // Точка маршрута: номер по <Порядок>, не идентификатор (инвариант 3).
+        // Точка маршрута: завершённая — галочка, сорванная/снятая — крестик,
+        // активная — номер на зелёном, впереди — номер на сером (как раньше).
+        // Цвет не единственный признак — рядом всегда статус словом.
         Surface(
             shape = CircleShape,
-            color = if (isActive) activeColor else MaterialTheme.colorScheme.outline,
-            contentColor = if (isActive) Color.White else MaterialTheme.colorScheme.onSurface,
+            color = when {
+                completed || isActive -> activeColor
+                failed -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.outline
+            },
+            contentColor = if (completed || failed || isActive) Color.White else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(40.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Text(text = trip.order.toString(), style = MaterialTheme.typography.titleMedium)
+                when {
+                    completed -> Icon(Icons.Filled.Check, contentDescription = "Завершена")
+                    failed -> Icon(Icons.Filled.Close, contentDescription = "Сорвана")
+                    else -> Text(text = trip.order.toString(), style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
 
