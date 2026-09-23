@@ -14,20 +14,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-
-// Номера диспетчера нет в контракте с 1С — один на всех, задан автором.
-const val DISPATCHER_PHONE = "+79229611634"
+import ru.profstroyservices.armdriver.BuildConfig
 
 // Срыв рейса, отказ от разнарядки, любые изменения — только через
 // диспетчера: он правит разнарядку в 1С, приложение получает новую версию.
-// ACTION_DIAL открывает звонилку с номером и не требует разрешения на звонки.
+// Номера в контракте с 1С нет — приходит из local.properties
+// (dispatcher.phone, см. local.properties.example), не хардкод: у разных
+// сборок/окружений он может отличаться. Пусто — кнопки нет вообще, а не
+// кнопка в никуда.
 @Composable
 fun CallDispatcherButton(text: String = "Позвонить диспетчеру", modifier: Modifier = Modifier) {
+    val phone = BuildConfig.DISPATCHER_PHONE
+    if (phone.isBlank()) return
     val context = LocalContext.current
     OutlinedButton(
         onClick = {
+            // ACTION_DIAL открывает звонилку с номером и не требует
+            // разрешения на звонки (в отличие от ACTION_CALL).
             runCatching {
-                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$DISPATCHER_PHONE")))
+                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")))
             }
         },
         // heightIn, а не height: подпись в две строки иначе обрезалась снизу.

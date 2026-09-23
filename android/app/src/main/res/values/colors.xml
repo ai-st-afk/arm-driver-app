@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Тот же акцент, что Accent в ui/theme/Theme.kt — используется как
+         цвет иконки пуш-уведомлений (default_notification_color). -->
+    <color name="notification_accent">#E86C2F</color>
 </resources>

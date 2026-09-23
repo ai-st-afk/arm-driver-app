@@ -9,6 +9,16 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// google-services падает на этапе конфигурации, если google-services.json
+// отсутствует — а до создания Firebase-проекта и добавления в него этого
+// приложения взять его неоткуда (см. DEVLOG). Пока файла нет, пуши просто
+// не инициализируются (собственные Firebase-вызовы обёрнуты runCatching),
+// но сама сборка не ломается. Как появится файл — положить в app/ и плагин
+// подключится сам, без правки этого файла.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) {
@@ -27,8 +37,8 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 33
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.4.0"
+        versionCode = 16
+        versionName = "0.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -105,6 +115,13 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(libs.datastore.preferences)
+
+    // BOM+messaging компилируются независимо от google-services.json — тот
+    // нужен только плагину, который генерирует ресурсы для автостарта
+    // Firebase. Без него FirebaseMessaging просто не проинициализируется
+    // (см. комментарий у apply(plugin) выше).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
 

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import ru.profstroyservices.armdriver.data.network.GatewayApi
 import ru.profstroyservices.armdriver.data.network.userMessage
+import ru.profstroyservices.armdriver.data.repository.PushRepository
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import javax.inject.Inject
 
@@ -32,7 +33,8 @@ data class ServiceUiState(
 @HiltViewModel
 class ServiceViewModel @Inject constructor(
     private val api: GatewayApi,
-    private val settings: DriverSettingsRepository
+    private val settings: DriverSettingsRepository,
+    private val pushRepository: PushRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ServiceUiState())
@@ -72,6 +74,10 @@ class ServiceViewModel @Inject constructor(
                             assignments = response.assignments.size
                         )
                     )
+                    // До привязки токен девайса некуда было слать (driver_id
+                    // не известен) — теперь известен, шлём не дожидаясь
+                    // следующей ротации токена (onNewToken).
+                    pushRepository.registerCurrentToken()
                 }
                 .onFailure { error ->
                     _uiState.value = _uiState.value.copy(

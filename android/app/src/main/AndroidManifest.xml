@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- minSdk уже 33 — разрешение обязательно на всех поддерживаемых
+         версиях, запрашивается при первом запуске (см. MainActivity). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".ArmDriverApp"
@@ -20,6 +23,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".push.ArmDriverFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Канал "assignments" совпадает с android.notification.channel_id
+             в FCM-payload шлюза (internal/push/fcm.go) — там же приоритет и
+             звук, здесь только откуда взять иконку/цвет, если система сама
+             рисует уведомление (killed-app; см. ArmDriverApp про сам канал). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_launcher_foreground" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_accent" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="assignments" />
 
         <!-- Для ACTION_IMAGE_CAPTURE: даёт камере content:// Uri вместо
              прямого file:// пути (обязательно с Android 7+). -->
