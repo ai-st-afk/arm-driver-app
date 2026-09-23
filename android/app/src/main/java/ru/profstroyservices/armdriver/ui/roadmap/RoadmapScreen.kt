@@ -193,20 +193,30 @@ fun RoadmapScreen(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (!state.shiftStarted) {
+                    val banner = when {
+                        state.shiftEnded -> "Смена по этой разнарядке закончена."
+                        !state.shiftStarted -> "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
+                        else -> null
+                    }
+                    banner?.let { text ->
                         item {
                             Text(
-                                text = "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка».",
+                                text = text,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.error
                             )
                         }
                     }
+                    val lockedHint = when {
+                        state.shiftEnded -> "Смена закончена — отмечать этапы больше нельзя."
+                        !state.shiftStarted -> "Начните смену, чтобы отмечать этапы этого рейса."
+                        else -> null
+                    }
                     items(state.trips, key = { it.trip.id }) { tripState ->
                         TripRow(
                             state = tripState,
                             isActive = tripState.trip.id == state.activeTripId,
-                            shiftStarted = state.shiftStarted,
+                            lockedHint = lockedHint,
                             expanded = tripState.trip.id == expandedTripId,
                             onToggle = {
                                 expandedTripId = if (expandedTripId == tripState.trip.id) {
@@ -307,7 +317,8 @@ private fun NoPhotoDialog(
 private fun TripRow(
     state: TripUiState,
     isActive: Boolean,
-    shiftStarted: Boolean,
+    // Не null — отмечать этапы сейчас нельзя (смена не начата или закончена).
+    lockedHint: String?,
     expanded: Boolean,
     onToggle: () -> Unit,
     onAction: (String) -> Unit,
@@ -336,7 +347,7 @@ private fun TripRow(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 ExpandedDetails(
                     state = state,
-                    shiftStarted = shiftStarted,
+                    lockedHint = lockedHint,
                     onAction = onAction,
                     onSryv = onSryv,
                     onStepBack = onStepBack
@@ -405,7 +416,7 @@ private fun CollapsedHeader(state: TripUiState, isActive: Boolean) {
 @Composable
 private fun ExpandedDetails(
     state: TripUiState,
-    shiftStarted: Boolean,
+    lockedHint: String?,
     onAction: (String) -> Unit,
     onSryv: () -> Unit,
     onStepBack: () -> Unit
@@ -446,9 +457,9 @@ private fun ExpandedDetails(
         return
     }
 
-    if (!shiftStarted) {
+    if (lockedHint != null) {
         Text(
-            text = "Начните смену, чтобы отмечать этапы этого рейса.",
+            text = lockedHint,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

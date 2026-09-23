@@ -70,7 +70,10 @@ sealed interface RoadmapUiState {
         // виден всегда (см. activeTripId выше), а вот кнопки цикла, срыв и
         // отмена шага требуют начатой смены — без неё эти события для 1С
         // бессмысленны (флоу «Ознакомление → НачалоСмены → ездки»).
-        val shiftStarted: Boolean
+        val shiftStarted: Boolean,
+        // После ОкончаниеСмены отмечать рейсы тоже нельзя — событие рейса
+        // после конца смены для 1С бессмысленно.
+        val shiftEnded: Boolean
     ) : RoadmapUiState
 }
 
@@ -119,6 +122,14 @@ class RoadmapViewModel @Inject constructor(
             refresh(assignment)
             retryQueue()
         }
+        // Плашка «Закончить смену» висит прямо над этим экраном и пишет
+        // событие мимо этого ViewModel — без подписки кнопки рейсов
+        // оставались бы на экране после окончания смены.
+        viewModelScope.launch {
+            eventQueue.observeForAssignment(assignmentId).collect {
+                if (driverId != null) reloadFromCache()
+            }
+        }
     }
 
     // Дёргается при каждом возврате на экран. Раньше roadmap читал только
@@ -152,7 +163,8 @@ class RoadmapViewModel @Inject constructor(
             assignmentNumber = assignment.number,
             trips = trips,
             activeTripId = trips.firstOrNull { !it.isResolved }?.trip?.id,
-            shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled }
+            shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled },
+            shiftEnded = events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled }
         )
     }
 
@@ -164,6 +176,10 @@ class RoadmapViewModel @Inject constructor(
         val state = _uiState.value as? RoadmapUiState.Content ?: return null
         if (!state.shiftStarted) {
             emitFeedback("Сначала начните смену на вкладке «Разнарядка»", null)
+            return null
+        }
+        if (state.shiftEnded) {
+            emitFeedback("Смена по этой разнарядке уже закончена", null)
             return null
         }
         return state

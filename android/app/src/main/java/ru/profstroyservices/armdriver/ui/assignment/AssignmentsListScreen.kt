@@ -56,9 +56,12 @@ fun AssignmentsGate(
             )
 
             is AssignmentsListUiState.Loaded -> {
+                // Текущая смена — последняя начатая из открытых, так же как в
+                // ShiftViewModel, иначе плашка и рейсы показывали бы разное.
                 val target = state.assignments.singleOrNull()
                     ?: state.assignments.takeIf { autoSelectActive }
-                        ?.firstOrNull { it.shiftStarted && !it.shiftEnded }
+                        ?.filter { it.openShiftStartedAt != null }
+                        ?.maxByOrNull { it.openShiftStartedAt!! }
                 if (target != null) {
                     LaunchedEffect(target.id) { onSingle(target.id) }
                 } else {

@@ -103,7 +103,12 @@ fun MainScaffold(
                             navController.navigate(tab.navTarget) {
                                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                 launchSingleTop = true
-                                restoreState = true
+                                // «Мои рейсы» не восстанавливаем: иначе вкладка
+                                // возвращала сохранённый экран рейсов прошлой
+                                // разнарядки, даже когда смена уже началась по
+                                // другой. Вход через AssignmentsGate каждый раз
+                                // заново выбирает текущую.
+                                restoreState = tab.navTarget != MainRoutes.TRIPS_GRAPH
                             }
                         },
                         icon = { Icon(tab.icon, contentDescription = tab.label) },

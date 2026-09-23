@@ -15,6 +15,7 @@ import ru.profstroyservices.armdriver.data.repository.AssignmentRepository
 import ru.profstroyservices.armdriver.data.repository.EventQueueRepository
 import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.data.repository.QueueRepository
+import ru.profstroyservices.armdriver.data.repository.openShiftStartedAt
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import javax.inject.Inject
 
@@ -23,12 +24,14 @@ sealed interface ShiftUiState {
     data class Active(val assignmentId: String, val assignmentNumber: String?) : ShiftUiState
 }
 
-// «Закончить смену» жила в каждой разнарядке отдельно — при нескольких
-// разнарядках за день выглядело так, будто у каждой своя смена. Смена одна,
-// поэтому кнопка теперь общая для всего приложения (см. MainScaffold), а
-// не привязана к тому, какую разнарядку водитель сейчас смотрит. «Начать
-// смену» осталась в самой разнарядке — там это осмысленный выбор, с какой
-// разнарядки начинается работа.
+// Кнопка «Закончить смену» — одна на всё приложение (см. MainScaffold), а не
+// в каждой разнарядке. По контракту ОкончаниеСмены — событие уровня
+// разнарядки, поэтому шлётся с id той разнарядки, где смена открыта.
+// Текущая — последняя начатая, тот же выбор делает вкладка «Мои рейсы».
+// Обычно открыта одна («Начать смену» при открытой другой сначала закрывает
+// её, см. AssignmentViewModel). Если открыто несколько (данные, записанные
+// до этого правила), закрываем только текущую — не трогаем ту, по которой
+// водитель работает, — после неё плашка покажет следующую открытую.
 @HiltViewModel
 class ShiftViewModel @Inject constructor(
     private val assignmentRepository: AssignmentRepository,
@@ -68,15 +71,14 @@ class ShiftViewModel @Inject constructor(
 
             val perAssignment = assignments.map { assignment ->
                 eventQueue.observeForAssignment(assignment.id).map { events ->
-                    val started = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled }
-                    val ended = events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled }
-                    if (started && !ended) assignment else null
+                    openShiftStartedAt(events)?.let { startedAt -> assignment to startedAt }
                 }
             }
             watchJob = viewModelScope.launch {
-                combine(perAssignment) { results -> results.firstOrNull { it != null } }
-                    .collect { active ->
-                        _uiState.value = active?.let { ShiftUiState.Active(it.id, it.number) } ?: ShiftUiState.Hidden
+                combine(perAssignment) { results -> results.filterNotNull() }
+                    .collect { open ->
+                        val current = open.maxByOrNull { it.second }?.first
+                        _uiState.value = current?.let { ShiftUiState.Active(it.id, it.number) } ?: ShiftUiState.Hidden
                     }
             }
         }

@@ -67,6 +67,7 @@ fun AssignmentScreen(
     viewModel: AssignmentViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val shiftSwitchPrompt by viewModel.shiftSwitchPrompt.collectAsState()
     var showCancelDialog by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
@@ -136,6 +137,25 @@ fun AssignmentScreen(
                 showCancelDialog = false
             },
             onDismiss = { showCancelDialog = false }
+        )
+    }
+
+    shiftSwitchPrompt?.let { prompt ->
+        AlertDialog(
+            onDismissRequest = viewModel::onDismissShiftSwitch,
+            title = { Text("Смена уже идёт") },
+            text = {
+                Text(
+                    "Смена по разнарядке № ${prompt.openAssignmentsLabel} ещё не закончена. " +
+                        "Закончить её и начать смену по этой разнарядке?"
+                )
+            },
+            confirmButton = {
+                Button(onClick = viewModel::onConfirmShiftSwitch) { Text("Закончить и начать") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = viewModel::onDismissShiftSwitch) { Text("Отмена") }
+            }
         )
     }
 }

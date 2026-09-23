@@ -15,6 +15,7 @@ import ru.profstroyservices.armdriver.data.repository.AssignmentRepository
 import ru.profstroyservices.armdriver.data.repository.EventQueueRepository
 import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.data.repository.QueueRepository
+import ru.profstroyservices.armdriver.data.repository.openShiftStartedAt
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import javax.inject.Inject
 
@@ -41,6 +42,11 @@ sealed interface AssignmentUiState {
     ) : AssignmentUiState
 }
 
+data class ShiftSwitchPrompt(
+    val openAssignmentIds: List<String>,
+    val openAssignmentsLabel: String
+)
+
 @HiltViewModel
 class AssignmentViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -55,10 +61,21 @@ class AssignmentViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<AssignmentUiState>(AssignmentUiState.Loading)
     val uiState: StateFlow<AssignmentUiState> = _uiState.asStateFlow()
 
+    private val _shiftSwitchPrompt = MutableStateFlow<ShiftSwitchPrompt?>(null)
+    val shiftSwitchPrompt: StateFlow<ShiftSwitchPrompt?> = _shiftSwitchPrompt.asStateFlow()
+
     private var driverId: String? = null
+    private var currentAssignment: AssignmentDto? = null
 
     init {
         load()
+        // События по разнарядке пишут и другие экраны (плашка «Закончить
+        // смену», рейсы) — без подписки статус здесь отставал до выхода с экрана.
+        viewModelScope.launch {
+            eventQueue.observeForAssignment(assignmentId).collect { events ->
+                currentAssignment?.let { render(it, events) }
+            }
+        }
     }
 
     // Дёргается при каждом возврате на экран (в том числе при переключении
@@ -96,7 +113,11 @@ class AssignmentViewModel @Inject constructor(
     }
 
     private suspend fun updateContent(assignment: AssignmentDto) {
-        val events: List<PendingEventEntity> = eventQueue.observeForAssignment(assignment.id).first()
+        currentAssignment = assignment
+        render(assignment, eventQueue.observeForAssignment(assignment.id).first())
+    }
+
+    private suspend fun render(assignment: AssignmentDto, events: List<PendingEventEntity>) {
         val tripsCompleted = assignment.trips.count { trip ->
             trip.status == STATUS_CANCELLED ||
                 events.any {
@@ -130,18 +151,57 @@ class AssignmentViewModel @Inject constructor(
         }
     }
 
+    // Открытой может быть только одна смена. Иначе водитель, не закрыв смену
+    // по предыдущей разнарядке, начинал следующую — и было непонятно, чьи
+    // рейсы показывать и какую смену закрывает общая кнопка. Поэтому при
+    // открытой другой смене сначала спрашиваем, закрыть ли её.
     fun onStartShift() {
         val state = _uiState.value as? AssignmentUiState.Content ?: return
         val id = driverId ?: return
         viewModelScope.launch {
-            eventQueue.enqueue(
-                type = EventTypes.NACHALO_SMENY,
-                driverId = id,
-                assignmentId = state.assignment.id
-            )
-            updateContent(state.assignment)
-            queue.flush()
+            val others = assignmentRepository.getCachedList(id)
+                .filter { it.id != state.assignment.id }
+                .filter { openShiftStartedAt(eventQueue.observeForAssignment(it.id).first()) != null }
+            if (others.isNotEmpty()) {
+                _shiftSwitchPrompt.value = ShiftSwitchPrompt(
+                    openAssignmentIds = others.map { it.id },
+                    openAssignmentsLabel = others.joinToString { it.number ?: it.id }
+                )
+                return@launch
+            }
+            startShift(state.assignment, id)
         }
+    }
+
+    fun onConfirmShiftSwitch() {
+        val prompt = _shiftSwitchPrompt.value ?: return
+        val state = _uiState.value as? AssignmentUiState.Content ?: return
+        val id = driverId ?: return
+        _shiftSwitchPrompt.value = null
+        viewModelScope.launch {
+            prompt.openAssignmentIds.forEach { otherId ->
+                eventQueue.enqueue(
+                    type = EventTypes.OKONCHANIE_SMENY,
+                    driverId = id,
+                    assignmentId = otherId
+                )
+            }
+            startShift(state.assignment, id)
+        }
+    }
+
+    fun onDismissShiftSwitch() {
+        _shiftSwitchPrompt.value = null
+    }
+
+    private suspend fun startShift(assignment: AssignmentDto, driverId: String) {
+        eventQueue.enqueue(
+            type = EventTypes.NACHALO_SMENY,
+            driverId = driverId,
+            assignmentId = assignment.id
+        )
+        updateContent(assignment)
+        queue.flush()
     }
 
     // Водитель отказывается от разнарядки сам, до начала смены — не звонит
