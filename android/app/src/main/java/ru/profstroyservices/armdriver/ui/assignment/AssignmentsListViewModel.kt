@@ -19,7 +19,9 @@ data class AssignmentSummary(
     val id: String,
     val number: String?,
     val departureDay: String,
-    val statusLabel: String
+    val statusLabel: String,
+    val shiftStarted: Boolean,
+    val shiftEnded: Boolean
 )
 
 sealed interface AssignmentsListUiState {
@@ -70,13 +72,22 @@ class AssignmentsListViewModel @Inject constructor(
 
     private suspend fun AssignmentDto.toSummary(): AssignmentSummary {
         val events = eventQueue.observeForAssignment(id).first()
+        val shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled }
+        val shiftEnded = events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled }
         val statusLabel = when {
             events.any { it.type == EventTypes.OTKAZ_OT_RAZNARYADKI && !it.cancelled } -> "отказался от разнарядки"
-            events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled } -> "смена завершена"
-            events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled } -> "смена идёт"
+            shiftEnded -> "смена завершена"
+            shiftStarted -> "смена идёт"
             events.any { it.type == EventTypes.OZNAKOMLENIE && !it.cancelled } -> "ознакомлен"
             else -> "не ознакомлен"
         }
-        return AssignmentSummary(id = id, number = number, departureDay = departureDay, statusLabel = statusLabel)
+        return AssignmentSummary(
+            id = id,
+            number = number,
+            departureDay = departureDay,
+            statusLabel = statusLabel,
+            shiftStarted = shiftStarted,
+            shiftEnded = shiftEnded
+        )
     }
 }

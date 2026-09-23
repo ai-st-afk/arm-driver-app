@@ -59,6 +59,7 @@ sealed interface RoadmapUiState {
     data class Error(val message: String) : RoadmapUiState
     data class Content(
         val assignmentId: String,
+        val assignmentNumber: String?,
         val trips: List<TripUiState>,
         // Первый незакрытый рейс по порядку — её карточка раскрыта и
         // подсвечена. Остальные видны и доступны (решение автора: водитель
@@ -148,6 +149,7 @@ class RoadmapViewModel @Inject constructor(
             }
         _uiState.value = RoadmapUiState.Content(
             assignmentId = assignment.id,
+            assignmentNumber = assignment.number,
             trips = trips,
             activeTripId = trips.firstOrNull { !it.isResolved }?.trip?.id,
             shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled }

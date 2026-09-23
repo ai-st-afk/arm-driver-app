@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -59,6 +60,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import ru.profstroyservices.armdriver.data.network.PointDto
 import ru.profstroyservices.armdriver.data.network.TripDto
 import ru.profstroyservices.armdriver.data.repository.EventTypes
@@ -77,6 +80,10 @@ import java.io.File
 private val PrimaryActionHeight = 64.dp
 private val SecondaryActionHeight = 56.dp
 private val CompletedGreen = Color(0xFF2E7D32)
+
+// Совпадает с UNDO_WINDOW_MILLIS во ViewModel: пока снекбар виден, отмена
+// ещё возможна, событие ещё не отправлено.
+private const val FeedbackAutoDismissMillis = 5_000L
 
 private val actionLabels = mapOf(
     EventTypes.PRIBYL_NA_POGRUZKU to "Прибыл на погрузку",
@@ -126,11 +133,21 @@ fun RoadmapScreen(
     LaunchedEffect(Unit) {
         viewModel.feedback.collect { feedback ->
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            // showSnackbar с actionLabel по умолчанию держит уведомление
+            // бесконечно (SnackbarDuration.Indefinite) — а тут нужно ровно
+            // столько же, сколько у окна отмены во ViewModel, дальше событие
+            // уже уходит в 1С и отменять поздно.
+            val autoDismiss = launch {
+                delay(FeedbackAutoDismissMillis)
+                snackbarHostState.currentSnackbarData?.dismiss()
+            }
             val result = snackbarHostState.showSnackbar(
                 message = feedback.text,
                 actionLabel = feedback.undoEventId?.let { "Отменить" },
-                withDismissAction = false
+                withDismissAction = false,
+                duration = SnackbarDuration.Indefinite
             )
+            autoDismiss.cancel()
             if (result == SnackbarResult.ActionPerformed) {
                 feedback.undoEventId?.let(viewModel::onUndo)
             }
@@ -139,16 +156,20 @@ fun RoadmapScreen(
 
     Scaffold(
         topBar = {
-            if (onBack != null) {
-                TopAppBar(
-                    title = {},
-                    navigationIcon = {
+            // Шапка видна всегда (не только когда есть куда возвращаться) —
+            // водитель должен видеть, по какой разнарядке эти рейсы, даже
+            // если она единственная и список-пикер был пропущен насквозь.
+            val assignmentNumber = (uiState as? RoadmapUiState.Content)?.assignmentNumber
+            TopAppBar(
+                title = { Text(assignmentNumber?.let { "Разнарядка № $it" } ?: "") },
+                navigationIcon = {
+                    if (onBack != null) {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад к списку разнарядок")
                         }
                     }
-                )
-            }
+                }
+            )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->

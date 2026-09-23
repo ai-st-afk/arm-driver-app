@@ -34,6 +34,10 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 fun AssignmentsGate(
     onSingle: (assignmentId: String) -> Unit,
     onSelectFromList: (assignmentId: String) -> Unit,
+    // Только для таба «Мои рейсы»: если смена уже начата по одной из
+    // разнарядок, список-пикер незачем показывать — водителю нужны только
+    // её рейсы, а не выбор из всех разнарядок за день заново.
+    autoSelectActive: Boolean = false,
     viewModel: AssignmentsListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -52,9 +56,11 @@ fun AssignmentsGate(
             )
 
             is AssignmentsListUiState.Loaded -> {
-                val single = state.assignments.singleOrNull()
-                if (single != null) {
-                    LaunchedEffect(single.id) { onSingle(single.id) }
+                val target = state.assignments.singleOrNull()
+                    ?: state.assignments.takeIf { autoSelectActive }
+                        ?.firstOrNull { it.shiftStarted && !it.shiftEnded }
+                if (target != null) {
+                    LaunchedEffect(target.id) { onSingle(target.id) }
                 } else {
                     AssignmentsListContent(
                         assignments = state.assignments,

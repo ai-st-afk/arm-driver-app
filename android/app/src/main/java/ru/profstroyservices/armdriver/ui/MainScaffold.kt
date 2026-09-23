@@ -1,6 +1,7 @@
 package ru.profstroyservices.armdriver.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assignment
@@ -103,7 +104,15 @@ fun MainScaffold(
             }
         }
     ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding)) {
+        // consumeWindowInsets — иначе вложенные Scaffold у экранов внутри
+        // NavHost (у них свой topBar) второй раз добавляют отступ под
+        // статус-бар поверх уже применённого здесь: получался двойной
+        // отступ сверху на каждом экране.
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
+        ) {
             UnsentBanner(state = queueState, onRetry = queueViewModel::onRetry)
 
             NavHost(
@@ -147,7 +156,8 @@ fun MainScaffold(
                                     popUpTo(MainRoutes.TRIPS) { inclusive = true }
                                 }
                             },
-                            onSelectFromList = { id -> navController.navigate(MainRoutes.roadmap(id)) }
+                            onSelectFromList = { id -> navController.navigate(MainRoutes.roadmap(id)) },
+                            autoSelectActive = true
                         )
                     }
                     composable(
