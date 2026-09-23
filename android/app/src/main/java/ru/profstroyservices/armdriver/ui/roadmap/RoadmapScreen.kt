@@ -364,7 +364,13 @@ private fun TripRow(
 
             if (expanded) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                ExpandedDetails(state = state, lockedHint = lockedHint, onAction = onAction, onStepBack = onStepBack)
+                ExpandedDetails(
+                    state = state,
+                    isActive = isActive,
+                    lockedHint = lockedHint,
+                    onAction = onAction,
+                    onStepBack = onStepBack
+                )
             }
         }
     }
@@ -424,6 +430,7 @@ private fun CollapsedHeader(state: TripProgress, isActive: Boolean) {
 @Composable
 private fun ExpandedDetails(
     state: TripProgress,
+    isActive: Boolean,
     lockedHint: String?,
     onAction: (String) -> Unit,
     onStepBack: () -> Unit
@@ -460,6 +467,20 @@ private fun ExpandedDetails(
 
     if (lockedHint != null) {
         Text(text = lockedHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+
+    // Рейсы всегда видны и открываются по тапу (решение автора — водитель
+    // должен видеть весь маршрут), но кнопка этапа — только у активного:
+    // nextAction сам по себе не знает про соседние рейсы, до этого фикса
+    // «Прибыл на погрузку» у второго рейса было можно нажать, не закрыв
+    // первый.
+    if (!isActive) {
+        Text(
+            text = "Рейс станет доступен, когда закроется текущий.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         return
     }
 

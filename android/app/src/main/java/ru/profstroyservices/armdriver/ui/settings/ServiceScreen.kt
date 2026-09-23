@@ -48,6 +48,16 @@ fun ServiceScreen(
                 style = MaterialTheme.typography.bodySmall
             )
 
+            // GUID уже привязанного телефона не показываем в поле — он и
+            // есть пропуск, показывать его в открытом виде тому, кто просто
+            // зашёл в «Настройки», нельзя.
+            if (uiState.savedDriverId != null) {
+                Text(
+                    text = "Телефон уже привязан. Чтобы привязать к другому водителю, введите его GUID.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
             OutlinedTextField(
                 value = uiState.driverIdInput,
                 onValueChange = viewModel::onDriverIdInputChange,

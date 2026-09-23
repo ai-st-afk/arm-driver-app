@@ -43,10 +43,13 @@ class ServiceViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             settings.getOrCreateDeviceId()
-            val saved = settings.driverId.first()
-            if (saved != null) {
-                _uiState.value = _uiState.value.copy(driverIdInput = saved, savedDriverId = saved)
-            }
+            // GUID — это и есть пропуск (см. комментарий класса), поэтому
+            // поле ввода НЕ предзаполняется его значением: экран открыт не
+            // только тем, кто выдаёт телефон, а раньше уже привязанный GUID
+            // был виден любому, кто зашёл в «Настройки» — эту дыру нашёл
+            // автор. savedDriverId только для статуса "уже привязан", сам
+            // GUID на экране не показываем.
+            _uiState.value = _uiState.value.copy(savedDriverId = settings.driverId.first())
         }
     }
 
