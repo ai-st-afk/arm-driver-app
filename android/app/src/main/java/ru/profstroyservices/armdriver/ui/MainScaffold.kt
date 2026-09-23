@@ -38,6 +38,9 @@ import ru.profstroyservices.armdriver.ui.queue.QueueViewModel
 import ru.profstroyservices.armdriver.ui.queue.UnsentBanner
 import ru.profstroyservices.armdriver.ui.roadmap.RoadmapScreen
 import ru.profstroyservices.armdriver.ui.settings.SettingsScreen
+import ru.profstroyservices.armdriver.ui.shift.ActiveShiftBar
+import ru.profstroyservices.armdriver.ui.shift.ShiftUiState
+import ru.profstroyservices.armdriver.ui.shift.ShiftViewModel
 
 // Постоянный нижний таб-бар — это и есть «всегда можно выйти в главное
 // меню» из запроса автора: не нужен отдельный пункт «Главная», сам бар
@@ -74,15 +77,21 @@ private val tabs = listOf(
 @Composable
 fun MainScaffold(
     navController: NavHostController = rememberNavController(),
-    queueViewModel: QueueViewModel = hiltViewModel()
+    queueViewModel: QueueViewModel = hiltViewModel(),
+    shiftViewModel: ShiftViewModel = hiltViewModel()
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val queueState by queueViewModel.state.collectAsState()
+    val shiftState by shiftViewModel.uiState.collectAsState()
 
     // Возврат в приложение — повод дослать то, что залипло в очереди, пока
-    // телефон был без сети (автосинхронизации в объёме нет, см. AGENTS.md).
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { queueViewModel.onRetry() }
+    // телефон был без сети (автосинхронизации в объёме нет, см. AGENTS.md),
+    // и пересобрать список разнарядок, которые слушает ShiftViewModel.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        queueViewModel.onRetry()
+        shiftViewModel.refresh()
+    }
 
     Scaffold(
         bottomBar = {
@@ -114,6 +123,9 @@ fun MainScaffold(
                 .consumeWindowInsets(innerPadding)
         ) {
             UnsentBanner(state = queueState, onRetry = queueViewModel::onRetry)
+            (shiftState as? ShiftUiState.Active)?.let { active ->
+                ActiveShiftBar(state = active, onEndShift = shiftViewModel::onEndShift)
+            }
 
             NavHost(
                 navController = navController,

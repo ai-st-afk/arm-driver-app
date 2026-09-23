@@ -18,6 +18,8 @@ import ru.profstroyservices.armdriver.data.repository.QueueRepository
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import javax.inject.Inject
 
+private const val STATUS_CANCELLED = "Отменена"
+
 sealed interface AssignmentUiState {
     data object Loading : AssignmentUiState
     data class Error(val message: String) : AssignmentUiState
@@ -29,7 +31,13 @@ sealed interface AssignmentUiState {
         // Водитель отказался от разнарядки сам, до начала смены (не путать
         // со «Срыв» — тот про конкретный рейс и только после начала смены).
         val cancelledByDriver: Boolean,
-        val updatedAt: Long?
+        val updatedAt: Long?,
+        // Разнарядка сама не шлёт статус завершения (в контракте с 1С его
+        // нет) — считаем локально по рейсам: закрыт (Разгрузился), сорван
+        // или снят диспетчером, и так по каждому. Автор попросил именно
+        // так, без отдельной кнопки «Завершить разнарядку».
+        val tripsCompleted: Int,
+        val tripsTotal: Int
     ) : AssignmentUiState
 }
 
@@ -89,13 +97,22 @@ class AssignmentViewModel @Inject constructor(
 
     private suspend fun updateContent(assignment: AssignmentDto) {
         val events: List<PendingEventEntity> = eventQueue.observeForAssignment(assignment.id).first()
+        val tripsCompleted = assignment.trips.count { trip ->
+            trip.status == STATUS_CANCELLED ||
+                events.any {
+                    it.tripId == trip.id && !it.cancelled &&
+                        (it.type == EventTypes.RAZGRUZILSYA || it.type == EventTypes.SRYV)
+                }
+        }
         _uiState.value = AssignmentUiState.Content(
             assignment = assignment,
             acknowledged = events.any { it.type == EventTypes.OZNAKOMLENIE && !it.cancelled },
             shiftStarted = events.any { it.type == EventTypes.NACHALO_SMENY && !it.cancelled },
             shiftEnded = events.any { it.type == EventTypes.OKONCHANIE_SMENY && !it.cancelled },
             cancelledByDriver = events.any { it.type == EventTypes.OTKAZ_OT_RAZNARYADKI && !it.cancelled },
-            updatedAt = assignmentRepository.getCachedUpdatedAt(assignment.id)
+            updatedAt = assignmentRepository.getCachedUpdatedAt(assignment.id),
+            tripsCompleted = tripsCompleted,
+            tripsTotal = assignment.trips.size
         )
     }
 
@@ -140,20 +157,6 @@ class AssignmentViewModel @Inject constructor(
                 driverId = id,
                 assignmentId = state.assignment.id,
                 comment = reason
-            )
-            updateContent(state.assignment)
-            queue.flush()
-        }
-    }
-
-    fun onEndShift() {
-        val state = _uiState.value as? AssignmentUiState.Content ?: return
-        val id = driverId ?: return
-        viewModelScope.launch {
-            eventQueue.enqueue(
-                type = EventTypes.OKONCHANIE_SMENY,
-                driverId = id,
-                assignmentId = state.assignment.id
             )
             updateContent(state.assignment)
             queue.flush()

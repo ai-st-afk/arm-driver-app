@@ -22,9 +22,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -37,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -44,6 +47,8 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import ru.profstroyservices.armdriver.R
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
 import ru.profstroyservices.armdriver.ui.components.LabeledField
+import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
+import ru.profstroyservices.armdriver.ui.theme.statusActiveContainer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -68,16 +73,25 @@ fun AssignmentScreen(
 
     Scaffold(
         topBar = {
-            if (onBack != null) {
-                TopAppBar(
-                    title = {},
-                    navigationIcon = {
+            // Шапка видна всегда — короткий цветной статус смены в углу
+            // заменяет собой строку «Статус смены» в теле экрана, которая
+            // не менялась синхронно с прогрессом рейсов и вводила в
+            // заблуждение (см. DEVLOG).
+            TopAppBar(
+                title = {},
+                navigationIcon = {
+                    if (onBack != null) {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад к списку разнарядок")
                         }
                     }
-                )
-            }
+                },
+                actions = {
+                    (uiState as? AssignmentUiState.Content)?.let { content ->
+                        ShiftStatusBadge(content)
+                    }
+                }
+            )
         }
     ) { innerPadding ->
         when (val state = uiState) {
@@ -109,7 +123,6 @@ fun AssignmentScreen(
                     state = state,
                     onAcknowledge = viewModel::onAcknowledge,
                     onStartShift = viewModel::onStartShift,
-                    onEndShift = viewModel::onEndShift,
                     onRequestCancel = { showCancelDialog = true }
                 )
             }
@@ -156,6 +169,28 @@ private fun CancelAssignmentDialog(onConfirm: (String) -> Unit, onDismiss: () ->
     )
 }
 
+// Зелёный — смена идёт, красным — любое другое состояние (не начата,
+// завершена, отказ). Цвет не единственный признак — рядом всегда текст.
+@Composable
+private fun ShiftStatusBadge(state: AssignmentUiState.Content) {
+    val active = state.shiftStarted && !state.shiftEnded
+    val color = if (active) statusActiveColor() else MaterialTheme.colorScheme.error
+    val container = if (active) statusActiveContainer() else MaterialTheme.colorScheme.errorContainer
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = container,
+        modifier = Modifier.padding(end = 16.dp)
+    ) {
+        Text(
+            text = shiftStatusLabel(state),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            color = color
+        )
+    }
+}
+
 @Composable
 private fun AppHeader() {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -177,7 +212,6 @@ private fun AssignmentContent(
     state: AssignmentUiState.Content,
     onAcknowledge: () -> Unit,
     onStartShift: () -> Unit,
-    onEndShift: () -> Unit,
     onRequestCancel: () -> Unit
 ) {
     val assignment: AssignmentDto = state.assignment
@@ -195,7 +229,6 @@ private fun AssignmentContent(
             value = "${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim()
         )
         LabeledField(label = "Рейсов на смену", value = assignment.trips.size.toString())
-        LabeledField(label = "Статус смены", value = shiftStatusLabel(state))
     }
 
     state.updatedAt?.let { updatedAt ->
@@ -239,23 +272,18 @@ private fun AssignmentContent(
     }
 
     if (state.shiftStarted) {
-        Button(
-            onClick = onEndShift,
-            enabled = !state.shiftEnded,
-            modifier = Modifier.fillMaxWidth().height(ButtonHeight)
-        ) {
-            Text(
-                if (state.shiftEnded) "Смена завершена" else "Закончить смену",
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
-
-        if (!state.shiftEnded) {
-            Text(
-                text = "Рейсы — во вкладке «Мои рейсы».",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+        // «Закончить смену» теперь не здесь — она общая на все вкладки
+        // (см. ActiveShiftBar в MainScaffold), не привязана к тому, какую
+        // разнарядку водитель сейчас смотрит.
+        Text(
+            text = tripsProgressLabel(state),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "Рейсы — во вкладке «Мои рейсы».",
+            style = MaterialTheme.typography.bodySmall
+        )
     } else {
         // Доступно только до начала смены — после НачалоСмены отказ от
         // задания уже не имеет смысла, там свои шаги (Срыв по рейсу).
@@ -278,4 +306,14 @@ private fun shiftStatusLabel(state: AssignmentUiState.Content): String = when {
     state.shiftStarted -> "смена идёт"
     state.acknowledged -> "ознакомлен"
     else -> "не ознакомлен"
+}
+
+// Разнарядка не шлёт отдельного статуса завершения — считаем сами по
+// рейсам (Разгрузился/Срыв/снята диспетчером = закрыт). Дробь вместо
+// отдельных фраз «первый закончен»/«ожидание следующего» — верно при любом
+// числе рейсов, не только при двух.
+private fun tripsProgressLabel(state: AssignmentUiState.Content): String = when {
+    state.tripsTotal == 0 -> "Рейсов нет"
+    state.tripsCompleted >= state.tripsTotal -> "Все рейсы завершены"
+    else -> "Рейсы: ${state.tripsCompleted} из ${state.tripsTotal} выполнено"
 }

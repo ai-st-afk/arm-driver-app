@@ -485,25 +485,21 @@ private fun ExpandedDetails(
     }
 }
 
-// Открываем адрес в Яндекс.Картах явным intent'ом на их пакет — в контракте
-// с 1С координат точек нет, только текстовый адрес, а по тексту Яндекс.
-// Навигатор маршрут не строит (нужны координаты), в отличие от Яндекс.Карт,
-// которые умеют поиск по тексту. Если Яндекса нет — общий geo: intent,
-// его понимают 2ГИС и Google Maps, откроется что установлено у водителя.
+// Открываем адрес общим geo: intent'ом без привязки к конкретному
+// приложению — в контракте с 1С координат точек нет, только текстовый
+// адрес, а geo:...?q= умеют искать по тексту и Яндекс.Карты, и 2ГИС, и
+// Google Maps. Если на телефоне один навигатор — откроется сразу, если
+// несколько — Android сам покажет системный выбор (и запомнит «Всегда»,
+// если водитель поставит галку); свой выбор в приложении не заводим,
+// системный уже решает эту задачу.
 @Composable
 private fun navigateAction(point: PointDto): (() -> Unit)? {
     val context = LocalContext.current
     val address = firstNotBlank(point.address, point.name) ?: return null
     return {
         val encoded = Uri.encode(address)
-        val yandex = Intent(Intent.ACTION_VIEW, Uri.parse("yandexmaps://maps.yandex.ru/?text=$encoded")).apply {
-            setPackage("ru.yandex.yandexmaps")
-        }
-        val openedYandex = runCatching { context.startActivity(yandex) }.isSuccess
-        if (!openedYandex) {
-            val fallback = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encoded"))
-            runCatching { context.startActivity(fallback) }
-        }
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encoded"))
+        runCatching { context.startActivity(intent) }
     }
 }
 
