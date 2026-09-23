@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -494,6 +495,62 @@ func TestDocumentUploadWithoutOneCConfiguredStaysPending(t *testing.T) {
 	}
 	if doc.DeliveredAt != nil {
 		t.Fatalf("DeliveredAt should not be set without 1C forwarding")
+	}
+}
+
+// failingSender имитирует сбой доставки пуша (протухший токен устройства,
+// FCM недоступен) — в отличие от recordingSender, всегда возвращает ошибку.
+type failingSender struct{}
+
+func (failingSender) SendAssignment(context.Context, push.AssignmentNotification) error {
+	return errFakePushFailure
+}
+
+var errFakePushFailure = errors.New("fake push failure")
+
+// Регрессия: сбой пуша раньше возвращал 1С 502 на приём разнарядки, хотя
+// она уже была сохранена и доступна мобильному приложению по GET —
+// диспетчер видел ошибку обмена по факту успешно принятой разнарядке.
+func TestAssignmentAcceptedEvenWhenPushFails(t *testing.T) {
+	cfg := config.Config{
+		GatewayToken:              "one-c-token",
+		MobileToken:               "mobile-token",
+		AssignmentListWindowHours: 48,
+	}
+	cfg.DataDir = t.TempDir()
+	store, err := storage.New(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("storage init: %v", err)
+	}
+	api := NewServer(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), http.DefaultClient, store, failingSender{})
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<Разнарядка>
+  <Идентификатор>b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f</Идентификатор>
+  <Версия>1</Версия>
+  <Статус>Активна</Статус>
+  <Водитель><Идентификатор>3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162</Идентификатор><ФИО>Иванов Иван Иванович</ФИО></Водитель>
+  <Машина><Идентификатор>7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d</Идентификатор><Наименование>КАМАЗ 65115</Наименование><ГосНомер>А123ВС43</ГосНомер></Машина>
+</Разнарядка>`
+	req := httptest.NewRequest(http.MethodPost, "/api/1c/assignments", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/xml; charset=utf-8")
+	req.Header.Set("X-Auth-Token", "one-c-token")
+	rec := httptest.NewRecorder()
+	api.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 despite push failure, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `статус="ok"`) {
+		t.Fatalf("response does not report ok: %s", rec.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/mobile/assignments?driver_id=3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162", nil)
+	get.Header.Set("X-Auth-Token", "mobile-token")
+	getRec := httptest.NewRecorder()
+	api.Routes().ServeHTTP(getRec, get)
+	if getRec.Code != http.StatusOK || !strings.Contains(getRec.Body.String(), `"status":"Активна"`) {
+		t.Fatalf("assignment not actually saved despite push failure: status=%d body=%s", getRec.Code, getRec.Body.String())
 	}
 }
 

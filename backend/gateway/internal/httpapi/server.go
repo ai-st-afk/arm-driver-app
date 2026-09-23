@@ -162,6 +162,13 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 		s.scheduleReminders(r.Context(), assignment)
 	}
 
+	// Пуш — не источник истины: разнарядка уже сохранена и доступна
+	// мобильному приложению по GET (оно и само её забирает при каждом
+	// возврате на экран). Раньше сбой пуша (протухший токен устройства,
+	// FCM недоступен и т.п.) валил весь ответ 1С — диспетчер видел
+	// пугающую ошибку обмена по разнарядке, которая на самом деле дошла
+	// до водителя нормально. Не блокируем приём: логируем и продолжаем,
+	// как уже сделано чуть ниже для пуша прежнему водителю при передаче.
 	if err := s.push.SendAssignment(r.Context(), push.AssignmentNotification{
 		Kind:         kind,
 		AssignmentID: assignment.ID,
@@ -169,8 +176,6 @@ func (s *Server) receiveAssignment(w http.ResponseWriter, r *http.Request) {
 		DriverID:     assignment.Driver.ID,
 	}); err != nil {
 		s.logger.ErrorContext(r.Context(), "assignment push failed", "error", err, "assignment", assignment.ID)
-		writeXMLError(w, http.StatusBadGateway, "разнарядка сохранена, но push не отправлен")
-		return
 	}
 
 	if reassignedFrom != "" {
