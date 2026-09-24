@@ -53,10 +53,13 @@ func FromEnv() Config {
 		OneCBaseURL:   baseURL,
 		OneCToken:     os.Getenv("ONE_C_TOKEN"),
 		OneCEventsURL: baseURL + "/prtr_driver/events",
-		OneCPhotoURL:  baseURL + "/prtr_driver/photo",
-		OneCUsername:  os.Getenv("ONE_C_USERNAME"),
-		OneCPassword:  os.Getenv("ONE_C_PASSWORD"),
-		FCMCredsFile:  os.Getenv("FCM_SERVICE_ACCOUNT_FILE"),
+		// URL-шаблон в 1С зарегистрирован как "Photo" (с большой буквы) —
+		// в отличие от "events", он регистрозависим и с маленькой буквы
+		// отдаёт 404 (проверено curl'ом напрямую разработчиком 1С).
+		OneCPhotoURL: baseURL + "/prtr_driver/Photo",
+		OneCUsername: os.Getenv("ONE_C_USERNAME"),
+		OneCPassword: os.Getenv("ONE_C_PASSWORD"),
+		FCMCredsFile: os.Getenv("FCM_SERVICE_ACCOUNT_FILE"),
 
 		DocumentPendingRetentionDays:   envInt("DOCUMENT_PENDING_RETENTION_DAYS", 90),
 		DocumentDeliveredRetentionDays: envInt("DOCUMENT_DELIVERED_RETENTION_DAYS", 7),
