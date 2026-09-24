@@ -103,10 +103,24 @@ func (s *Store) SaveAssignment(id string, version int, driverID string, raw []by
 	if err != nil {
 		return AssignmentMeta{}, false, err
 	}
-	if existing, ok := idx.Assignments[id]; ok && version < existing.Version {
-		return existing, false, nil
-	} else if ok && version == existing.Version {
-		return existing, true, nil
+	// Версия ниже сохранённой — переупорядоченная доставка, игнорируем
+	// (инвариант проекта). Версия равна сохранённой и водитель тот же —
+	// настоящий безобидный дубль (1С не обязана бить не-content правки),
+	// не перезаписываем зря. А вот версия равна, но водитель ДРУГОЙ —
+	// не дубль: на практике 1С один раз прислала документ с некорректным
+	// <Идентификатор> водителя (не бампнув версию, раз для них это не
+	// содержательная правка) и следом переслала с исправленным. Раньше
+	// это тоже считалось дублем и тихо игнорировалось — водитель с
+	// исправленным GUID пуш получал (SendAssignment строился из свежего
+	// тела запроса), а в выдаче по GET разнарядки не было вообще: она
+	// оставалась висеть на старом, битом driver_id.
+	if existing, ok := idx.Assignments[id]; ok {
+		if version < existing.Version {
+			return existing, false, nil
+		}
+		if version == existing.Version && driverID == existing.DriverID {
+			return existing, true, nil
+		}
 	}
 
 	contentPath := filepath.Join("assignments", id+".xml")

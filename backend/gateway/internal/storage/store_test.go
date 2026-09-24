@@ -76,6 +76,64 @@ func TestCleanupOldDocumentsRemovesExpiredOnly(t *testing.T) {
 	}
 }
 
+// Regression: 1С один раз прислала разнарядку с некорректным driver_id, не
+// бампнув версию, следом переслала ту же версию с исправленным. Раньше
+// второй SaveAssignment при version == existing.Version тихо игнорировался
+// целиком (в том числе новый driver_id) — разнарядка навсегда оставалась
+// привязана к битому GUID и не находилась по GET для настоящего водителя,
+// хотя push уходил на него же.
+func TestSaveAssignmentSameVersionDifferentDriverUpdatesRecord(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("storage init: %v", err)
+	}
+
+	if _, saved, err := store.SaveAssignment("assignment-1", 1, "broken-driver-id", []byte("<Разнарядка>v1-broken</Разнарядка>")); err != nil || !saved {
+		t.Fatalf("save first attempt: saved=%v err=%v", saved, err)
+	}
+
+	meta, saved, err := store.SaveAssignment("assignment-1", 1, "driver-1", []byte("<Разнарядка>v1-fixed</Разнарядка>"))
+	if err != nil {
+		t.Fatalf("save corrected attempt: %v", err)
+	}
+	if !saved {
+		t.Fatalf("corrected attempt reported as not saved (treated as stale duplicate)")
+	}
+	if meta.DriverID != "driver-1" {
+		t.Fatalf("stored driver_id = %q, want driver-1 (correction must overwrite the broken one)", meta.DriverID)
+	}
+
+	raw, _, err := store.GetAssignment("assignment-1")
+	if err != nil {
+		t.Fatalf("get assignment: %v", err)
+	}
+	if string(raw) != "<Разнарядка>v1-fixed</Разнарядка>" {
+		t.Fatalf("stored content = %q, want the corrected body", raw)
+	}
+
+	found, err := store.ListAssignmentsForDriver("driver-1", time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("list for driver-1: %v", err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("driver-1 sees %d assignments, want 1", len(found))
+	}
+
+	// Настоящий дубль (тот же driver_id, та же версия) по-прежнему не
+	// перезаписывает содержимое — иначе ScheduleReminders/SendAssignment
+	// вызывались бы заново на каждый безобидный повтор.
+	if _, saved, err := store.SaveAssignment("assignment-1", 1, "driver-1", []byte("<Разнарядка>should-be-ignored</Разнарядка>")); err != nil || !saved {
+		t.Fatalf("save true duplicate: saved=%v err=%v", saved, err)
+	}
+	raw, _, err = store.GetAssignment("assignment-1")
+	if err != nil {
+		t.Fatalf("get assignment after duplicate: %v", err)
+	}
+	if string(raw) != "<Разнарядка>v1-fixed</Разнарядка>" {
+		t.Fatalf("true duplicate overwrote content: %q", raw)
+	}
+}
+
 func TestListAssignmentsForDriverFiltersByWindowAndDriver(t *testing.T) {
 	store, err := New(t.TempDir())
 	if err != nil {
