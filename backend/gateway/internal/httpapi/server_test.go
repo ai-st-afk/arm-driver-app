@@ -66,6 +66,103 @@ func TestMobileEventsJSONForwardedToOneCXML(t *testing.T) {
 	}
 }
 
+// Контракт от 1С-разработчика (architecture.md §14, п.9, 2026-10-08):
+// разовая метка в <Событие>, 6 знаков после точки, Точность опциональна.
+func TestMobileEventsGeoTagForwardedToOneCXML(t *testing.T) {
+	var forwarded string
+	oneC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		forwarded = string(raw)
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Результат статус="ok"><Событие ид="8f3a1c2e-4b7d-4a91-9c11-2f5e6d0a7b31" принято="true"/></Результат>`))
+	}))
+	defer oneC.Close()
+
+	api := newTestServer(t, config.Config{
+		GatewayToken:  "one-c-token",
+		MobileToken:   "mobile-token",
+		OneCBaseURL:   oneC.URL,
+		OneCEventsURL: oneC.URL + "/prtr_driver/events",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/mobile/events", strings.NewReader(`{
+		"events": [{
+			"id": "8f3a1c2e-4b7d-4a91-9c11-2f5e6d0a7b31",
+			"type": "ПрибылНаПогрузку",
+			"driver_id": "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162",
+			"assignment_id": "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f",
+			"trip_id": "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b",
+			"time": "2026-09-10T07:34:12+03:00",
+			"geo": {
+				"latitude": 58.603521,
+				"longitude": 49.668014,
+				"accuracy": 12,
+				"fix_time": "2026-09-10T07:34:05+03:00"
+			}
+		}]
+	}`))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("X-Auth-Token", "mobile-token")
+	rec := httptest.NewRecorder()
+
+	api.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		"<Широта>58.603521</Широта>",
+		"<Долгота>49.668014</Долгота>",
+		"<Точность>12</Точность>",
+		"<ВремяОпределения>2026-09-10T07:34:05+03:00</ВремяОпределения>",
+	} {
+		if !strings.Contains(forwarded, want) {
+			t.Fatalf("forwarded XML missing %q: %s", want, forwarded)
+		}
+	}
+}
+
+// Без метки блок <Геометка> не должен появляться вообще — 1С прямо просит
+// не слать пустые элементы, если координаты нет.
+func TestMobileEventsWithoutGeoTagOmitsBlock(t *testing.T) {
+	var forwarded string
+	oneC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		forwarded = string(raw)
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Результат статус="ok"><Событие ид="8f3a1c2e-4b7d-4a91-9c11-2f5e6d0a7b31" принято="true"/></Результат>`))
+	}))
+	defer oneC.Close()
+
+	api := newTestServer(t, config.Config{
+		GatewayToken:  "one-c-token",
+		MobileToken:   "mobile-token",
+		OneCBaseURL:   oneC.URL,
+		OneCEventsURL: oneC.URL + "/prtr_driver/events",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/mobile/events", strings.NewReader(`{
+		"events": [{
+			"id": "8f3a1c2e-4b7d-4a91-9c11-2f5e6d0a7b31",
+			"type": "ПрибылНаПогрузку",
+			"driver_id": "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162",
+			"assignment_id": "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f",
+			"trip_id": "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b",
+			"time": "2026-09-10T07:34:12+03:00"
+		}]
+	}`))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("X-Auth-Token", "mobile-token")
+	rec := httptest.NewRecorder()
+
+	api.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(forwarded, "Геометка") {
+		t.Fatalf("geo block must be omitted entirely when there's no fix: %s", forwarded)
+	}
+}
+
 func TestAssignmentXMLStoredAndReturnedAsMobileJSON(t *testing.T) {
 	api := newTestServer(t, config.Config{
 		GatewayToken: "one-c-token",

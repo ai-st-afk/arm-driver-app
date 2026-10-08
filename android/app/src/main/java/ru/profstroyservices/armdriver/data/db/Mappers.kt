@@ -3,6 +3,7 @@ package ru.profstroyservices.armdriver.data.db
 import kotlinx.serialization.json.Json
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
 import ru.profstroyservices.armdriver.data.network.EventRequest
+import ru.profstroyservices.armdriver.data.network.GeoTagRequest
 
 private val json = Json { ignoreUnknownKeys = true }
 
@@ -23,8 +24,17 @@ fun PendingEventEntity.toEventRequest(): EventRequest = EventRequest(
     assignmentId = assignmentId,
     tripId = tripId,
     time = time,
-    comment = comment
+    comment = comment,
+    geo = toGeoTagRequest()
 )
+
+// Либо обе координаты есть, либо геометки не было вообще — так её и
+// записывал GeoTagProvider при enqueue (см. EventQueueRepository).
+private fun PendingEventEntity.toGeoTagRequest(): GeoTagRequest? {
+    val lat = latitude ?: return null
+    val lon = longitude ?: return null
+    return GeoTagRequest(latitude = lat, longitude = lon, accuracy = locationAccuracy, fixTime = locationFixTime)
+}
 
 fun AssignmentDto.toEntity(driverId: String, updatedAt: Long): CachedAssignmentEntity =
     CachedAssignmentEntity(

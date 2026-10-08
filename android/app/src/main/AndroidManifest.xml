@@ -5,6 +5,13 @@
     <!-- minSdk уже 33 — разрешение обязательно на всех поддерживаемых
          версиях, запрашивается при первом запуске (см. MainActivity). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Разовая геометка к событию в момент нажатия кнопки, не слежение за
+         маршрутом — поэтому ACCESS_BACKGROUND_LOCATION не нужен, только
+         foreground-доступ. COARSE рядом с FINE — на случай, если водитель
+         даст только приблизительное: лучше неточная метка, чем никакой
+         (см. GeoTagProvider). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
         android:name=".ArmDriverApp"

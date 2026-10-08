@@ -95,7 +95,18 @@ data class EventRequest(
     @SerialName("assignment_id") val assignmentId: String,
     @SerialName("trip_id") val tripId: String? = null,
     val time: String,
-    val comment: String = ""
+    val comment: String = "",
+    val geo: GeoTagRequest? = null
+)
+
+// Разовая метка в момент нажатия кнопки — контракт 1С (architecture.md §14,
+// п.9, 2026-10-08), не трекинг маршрута между событиями.
+@Serializable
+data class GeoTagRequest(
+    val latitude: Double,
+    val longitude: Double,
+    val accuracy: Int? = null,
+    @SerialName("fix_time") val fixTime: String? = null
 )
 
 @Serializable

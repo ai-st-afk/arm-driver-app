@@ -30,5 +30,13 @@ data class PendingEventEntity(
     // Ознакомления: 1С сбрасывает его при новой версии разнарядки и без
     // повторного отбивает НачалоСмены. В 1С не отправляется. null — событие
     // записано до появления колонки.
-    val assignmentVersion: Int? = null
+    val assignmentVersion: Int? = null,
+    // Разовая геометка в момент нажатия кнопки (GeoTagProvider), контракт
+    // 1С — architecture.md §14, п.9. Все четыре поля либо заполнены вместе,
+    // либо все null: нет валидного фикса — геометки не было вообще, а не
+    // "0.0, 0.0" (1С прямо просит не слать такое).
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val locationAccuracy: Int? = null,
+    val locationFixTime: String? = null
 )

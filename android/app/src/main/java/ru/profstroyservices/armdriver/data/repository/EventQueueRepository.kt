@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import ru.profstroyservices.armdriver.data.db.PendingEventDao
 import ru.profstroyservices.armdriver.data.db.PendingEventEntity
 import ru.profstroyservices.armdriver.data.db.toEventRequest
+import ru.profstroyservices.armdriver.data.location.GeoTagProvider
 import ru.profstroyservices.armdriver.data.network.EventsRequest
 import ru.profstroyservices.armdriver.data.network.GatewayApi
 import java.time.OffsetDateTime
@@ -15,7 +16,8 @@ import javax.inject.Singleton
 @Singleton
 class EventQueueRepository @Inject constructor(
     private val dao: PendingEventDao,
-    private val api: GatewayApi
+    private val api: GatewayApi,
+    private val geoTagProvider: GeoTagProvider
 ) {
     fun observeForAssignment(assignmentId: String): Flow<List<PendingEventEntity>> =
         dao.observeForAssignment(assignmentId)
@@ -48,6 +50,11 @@ class EventQueueRepository @Inject constructor(
         }
         if (duplicate) return null
         val id = UUID.randomUUID().toString()
+        // Та же точка, где фиксируются GUID и время (инвариант 1) — 1С прямо
+        // запрещает дослать метку к уже отправленному событию задним числом,
+        // так что брать координату нужно именно сейчас, а не при фактической
+        // отправке (та может случиться много позже, в т.ч. офлайн).
+        val geoFix = geoTagProvider.lastKnownFix()
         dao.insert(
             PendingEventEntity(
                 id = id,
@@ -57,7 +64,11 @@ class EventQueueRepository @Inject constructor(
                 tripId = tripId,
                 time = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                 comment = comment,
-                assignmentVersion = assignmentVersion
+                assignmentVersion = assignmentVersion,
+                latitude = geoFix?.latitude,
+                longitude = geoFix?.longitude,
+                locationAccuracy = geoFix?.accuracy,
+                locationFixTime = geoFix?.fixTime
             )
         )
         return id

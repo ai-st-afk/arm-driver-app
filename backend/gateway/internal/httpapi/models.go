@@ -66,13 +66,28 @@ type eventsXML struct {
 }
 
 type eventXML struct {
-	ID         string `xml:"Идентификатор"`
-	Type       string `xml:"Тип"`
-	DriverID   string `xml:"Водитель"`
-	Assignment string `xml:"Разнарядка"`
-	TripID     string `xml:"Ездка"`
-	Time       string `xml:"Время"`
-	Comment    string `xml:"Комментарий"`
+	ID         string     `xml:"Идентификатор"`
+	Type       string     `xml:"Тип"`
+	DriverID   string     `xml:"Водитель"`
+	Assignment string     `xml:"Разнарядка"`
+	TripID     string     `xml:"Ездка"`
+	Time       string     `xml:"Время"`
+	Comment    string     `xml:"Комментарий"`
+	GeoTag     *geoTagXML `xml:"Геометка,omitempty"`
+}
+
+// geoTagXML — разовая метка в момент нажатия кнопки (не трекинг маршрута),
+// контракт от 1С-разработчика (architecture.md §14, п.9, 2026-10-08).
+// Широта/Долгота — строки, не float64: нужны ровно 6 знаков после точки,
+// а обычное XML-маршалирование float этого не гарантирует (плавающая
+// погрешность в хвосте). Указатель на весь блок — чтобы отсутствие метки
+// не превращалось в <Геометка><Широта>0.000000</Широта>...</Геометка>:
+// 1С прямо просит не слать 0,0 и не слать пустые элементы, если метки нет.
+type geoTagXML struct {
+	Latitude  string `xml:"Широта"`
+	Longitude string `xml:"Долгота"`
+	Accuracy  *int   `xml:"Точность,omitempty"`
+	FixTime   string `xml:"ВремяОпределения,omitempty"`
 }
 
 type resultXML struct {
@@ -134,13 +149,21 @@ type eventsRequest struct {
 }
 
 type eventRequest struct {
-	ID           string `json:"id"`
-	Type         string `json:"type"`
-	DriverID     string `json:"driver_id"`
-	AssignmentID string `json:"assignment_id"`
-	TripID       string `json:"trip_id,omitempty"`
-	Time         string `json:"time"`
-	Comment      string `json:"comment,omitempty"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	DriverID     string         `json:"driver_id"`
+	AssignmentID string         `json:"assignment_id"`
+	TripID       string         `json:"trip_id,omitempty"`
+	Time         string         `json:"time"`
+	Comment      string         `json:"comment,omitempty"`
+	GeoTag       *geoTagRequest `json:"geo,omitempty"`
+}
+
+type geoTagRequest struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Accuracy  *int    `json:"accuracy,omitempty"`
+	FixTime   string  `json:"fix_time,omitempty"`
 }
 
 type eventSendResponse struct {

@@ -34,3 +34,13 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
         db.execSQL("ALTER TABLE pending_events ADD COLUMN assignmentVersion INTEGER")
     }
 }
+
+// Разовая геометка к событию — контракт 1С, architecture.md §14, п.9.
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pending_events ADD COLUMN latitude REAL")
+        db.execSQL("ALTER TABLE pending_events ADD COLUMN longitude REAL")
+        db.execSQL("ALTER TABLE pending_events ADD COLUMN locationAccuracy INTEGER")
+        db.execSQL("ALTER TABLE pending_events ADD COLUMN locationFixTime TEXT")
+    }
+}
