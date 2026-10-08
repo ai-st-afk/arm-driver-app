@@ -20,11 +20,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import ru.profstroyservices.armdriver.ui.components.assignmentDateLabel
 import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
 
 enum class GateMode {
@@ -94,18 +96,35 @@ private fun EmptyState(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+// Лента по дате выезда вместо плоского списка — список на телефон и так
+// короткий (шлюз отдаёт только окно 48 часов), но даже 2-3 разнарядки на
+// разные дни читаются как каша без заголовков (замена экипажа в тот же
+// день, разнарядка на завтра пришла с вечера).
 @Composable
 private fun AssignmentsList(
     assignments: List<AssignmentSummary>,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // groupBy сохраняет порядок первого появления ключа — список уже
+    // отсортирован хронологически во ViewModel, секции идут в том же порядке.
+    val sections = assignments.groupBy { it.departureDay }
+
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(assignments, key = { it.id }) { summary ->
-            AssignmentSummaryCard(summary = summary, onClick = { onSelect(summary.id) })
+        sections.forEach { (departureDay, dayAssignments) ->
+            item(key = "header-$departureDay") {
+                Text(
+                    text = assignmentDateLabel(departureDay),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            items(dayAssignments, key = { it.id }) { summary ->
+                AssignmentSummaryCard(summary = summary, onClick = { onSelect(summary.id) })
+            }
         }
     }
 }
@@ -124,7 +143,6 @@ private fun AssignmentSummaryCard(summary: AssignmentSummary, onClick: () -> Uni
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(text = "Разнарядка № ${summary.label}", style = MaterialTheme.typography.titleMedium)
-            Text(text = "Дата выезда: ${summary.departureDay}", style = MaterialTheme.typography.bodyMedium)
             Text(
                 text = if (summary.isCurrent) "текущая · ${summary.statusLabel}" else summary.statusLabel,
                 style = MaterialTheme.typography.bodySmall

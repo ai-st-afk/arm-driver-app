@@ -43,6 +43,21 @@ fun formatEventDateTime(iso: String?): String {
     }
 }
 
+// Для ленты разнарядок на вкладке «Разнарядка» — заголовок секции по дате
+// выезда (ДатаВыезда, просто дата без времени, в отличие от formatEventDateTime
+// выше). В отличие от истории событий, тут бывает и «Завтра»: разнарядка
+// доступна с вечера предыдущего дня (AGENTS.md, инвариант 7).
+fun assignmentDateLabel(departureDay: String): String {
+    val date = runCatching { LocalDate.parse(departureDay) }.getOrNull() ?: return departureDay
+    val today = LocalDate.now()
+    return when (date) {
+        today -> "Сегодня"
+        today.minusDays(1) -> "Вчера"
+        today.plusDays(1) -> "Завтра"
+        else -> date.format(dateFormatter)
+    }
+}
+
 // Нулевые значения груза 1С шлёт как "0"/"0.000" — водителю это мусор.
 fun cargoValue(value: String?, unit: String? = null): String? {
     if (value.isNullOrBlank()) return null

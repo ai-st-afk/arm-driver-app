@@ -44,8 +44,11 @@ class AssignmentsListViewModel @Inject constructor(
             // «разнарядок нет».
             if (all.isEmpty() && refreshing) return@combine AssignmentsListUiState.Loading
             val current = currentAssignment(all)
+            // Хронологически (лента по дате выезда), текущая и более живая
+            // фаза — выше при совпадении дня (например, старая и новая при
+            // замене экипажа в один день).
             val ordered = all.sortedWith(
-                compareBy<AssignmentState>({ it.id != current?.id }, { phaseOrder(it.phase) }, { it.assignment.departureDay })
+                compareBy<AssignmentState>({ it.assignment.departureDay }, { it.id != current?.id }, { phaseOrder(it.phase) })
             )
             AssignmentsListUiState.Loaded(
                 assignments = ordered.map { state ->
