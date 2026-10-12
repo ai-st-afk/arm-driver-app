@@ -1,6 +1,7 @@
 package ru.profstroyservices.armdriver.ui.components
 
 import ru.profstroyservices.armdriver.data.network.PointDto
+import ru.profstroyservices.armdriver.data.network.TripDto
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
@@ -56,6 +57,15 @@ fun assignmentDateLabel(departureDay: String): String {
         today.plusDays(1) -> "Завтра"
         else -> date.format(dateFormatter)
     }
+}
+
+// Краткое «откуда → куда» по каждому рейсу — для карточки завершённой
+// разнарядки в списке (история): видно, что это была за поездка, без
+// открытия самой разнарядки.
+fun tripsSummary(trips: List<TripDto>): String? {
+    if (trips.isEmpty()) return null
+    return trips.sortedBy { it.order }
+        .joinToString(", ") { "${pointShortLabel(it.loadPoint)} → ${pointShortLabel(it.unloadPoint)}" }
 }
 
 // Нулевые значения груза 1С шлёт как "0"/"0.000" — водителю это мусор.

@@ -91,3 +91,15 @@ fun statusActiveColor(): Color =
 @Composable
 fun statusActiveContainer(): Color =
     if (isSystemInDarkTheme()) Color(0xFF14331F) else Color(0xFFE3F5E9)
+
+// Разнарядка принята, но смена ещё не начата (NEW/ACCEPTED) — отдельный,
+// третий цвет от «зелёный = смена идёт» и «серый/красный = закрыто или
+// отменено»: водитель должен сразу увидеть в списке, что эту разнарядку
+// ещё только предстоит начать.
+@Composable
+fun statusPendingColor(): Color =
+    if (isSystemInDarkTheme()) Color(0xFFE8C547) else Color(0xFF8A6D00)
+
+@Composable
+fun statusPendingContainer(): Color =
+    if (isSystemInDarkTheme()) Color(0xFF3A2E00) else Color(0xFFFFF3CD)

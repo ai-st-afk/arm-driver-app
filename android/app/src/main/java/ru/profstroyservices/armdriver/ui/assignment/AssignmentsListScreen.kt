@@ -22,12 +22,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import ru.profstroyservices.armdriver.ui.components.assignmentDateLabel
 import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
+import ru.profstroyservices.armdriver.ui.theme.statusPendingColor
+import ru.profstroyservices.armdriver.ui.theme.statusPendingContainer
 
 enum class GateMode {
     // Вкладка «Разнарядка»: одна разнарядка — сразу она. Несколько — всегда
@@ -131,11 +134,16 @@ private fun AssignmentsList(
 
 @Composable
 private fun AssignmentSummaryCard(summary: AssignmentSummary, onClick: () -> Unit) {
+    // Принята, но смена не начата — жёлтый фон, не только бордер у текущей:
+    // в списке из нескольких разнарядок такую нужно заметить сразу, не
+    // открывая её.
+    val containerColor = if (summary.isPending) statusPendingContainer() else MaterialTheme.colorScheme.surfaceVariant
+    val statusColor = if (summary.isPending) statusPendingColor() else MaterialTheme.colorScheme.onSurfaceVariant
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = containerColor,
             contentColor = MaterialTheme.colorScheme.onSurface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -145,8 +153,17 @@ private fun AssignmentSummaryCard(summary: AssignmentSummary, onClick: () -> Uni
             Text(text = "Разнарядка № ${summary.label}", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = if (summary.isCurrent) "текущая · ${summary.statusLabel}" else summary.statusLabel,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                color = statusColor
             )
+            if (summary.tripsSummary != null) {
+                Text(
+                    text = summary.tripsSummary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
