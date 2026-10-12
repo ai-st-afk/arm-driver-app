@@ -37,8 +37,8 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 33
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.4.7"
+        versionCode = 23
+        versionName = "0.4.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -128,6 +128,9 @@ dependencies {
     implementation(libs.play.services.location)
 
     testImplementation(libs.junit)
+    // runTest + виртуальное время — для тестов delay()-логики (например,
+    // withQuietGrace в QueueRepository) без реального ожидания секунд.
+    testImplementation(libs.kotlinx.coroutines.test)
 
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
