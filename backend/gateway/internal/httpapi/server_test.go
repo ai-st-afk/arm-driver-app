@@ -66,6 +66,53 @@ func TestMobileEventsJSONForwardedToOneCXML(t *testing.T) {
 	}
 }
 
+// 1С в контракте события отдаёт только текст ошибки, без кода (eventResultXML
+// не содержит такого атрибута) — водитель видел голый текст без возможности
+// сослаться на код при жалобе. Гейтвей добавляет свой код "one_c_rejected",
+// тот же, что уже используют отказы фото.
+func TestMobileEventsRejectedByOneCIncludesCode(t *testing.T) {
+	oneC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Результат статус="ok"><Событие ид="8f3a1c2e-4b7d-4a91-9c11-2f5e6d0a7b31" принято="false" ошибка="Рейс не найден"/></Результат>`))
+	}))
+	defer oneC.Close()
+
+	api := newTestServer(t, config.Config{
+		GatewayToken:  "one-c-token",
+		MobileToken:   "mobile-token",
+		OneCBaseURL:   oneC.URL,
+		OneCEventsURL: oneC.URL + "/prtr_driver/events",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/mobile/events", strings.NewReader(`{
+		"events": [{
+			"id": "8f3a1c2e-4b7d-4a91-9c11-2f5e6d0a7b31",
+			"type": "ПрибылНаПогрузку",
+			"driver_id": "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162",
+			"assignment_id": "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f",
+			"trip_id": "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b",
+			"time": "2026-09-10T07:34:12+03:00"
+		}]
+	}`))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("X-Auth-Token", "mobile-token")
+	rec := httptest.NewRecorder()
+
+	api.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"accepted":false`) {
+		t.Fatalf("mobile response does not contain accepted=false: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"one_c_rejected"`) {
+		t.Fatalf("mobile response does not contain code=one_c_rejected: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"error":"Рейс не найден"`) {
+		t.Fatalf("mobile response does not forward 1C error text: %s", rec.Body.String())
+	}
+}
+
 // Контракт от 1С-разработчика (architecture.md §14, п.9, 2026-10-08):
 // разовая метка в <Событие>, 6 знаков после точки, Точность опциональна.
 func TestMobileEventsGeoTagForwardedToOneCXML(t *testing.T) {

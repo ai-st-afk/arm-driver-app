@@ -442,6 +442,11 @@ func (s *Server) receiveEvents(w http.ResponseWriter, r *http.Request) {
 	for _, event := range result.Events {
 		if strings.EqualFold(event.Accepted, "true") {
 			accepted[event.ID] = true
+		} else {
+			// Раньше отказ 1С по конкретному событию был виден только в
+			// ответе телефону, не в логах шлюза — при разборе жалобы
+			// "не отправлено" приходилось гадать, что именно ответила 1С.
+			s.logger.WarnContext(r.Context(), "1c rejected event", "id", event.ID, "error", event.Error)
 		}
 	}
 	for _, event := range req.Events {

@@ -118,7 +118,11 @@ data class EventsRequest(
 data class EventResultDto(
     val id: String,
     val accepted: Boolean,
-    val error: String? = null
+    val error: String? = null,
+    // 1С сама код не присылает (только текст ошибки) — это код шлюза,
+    // см. eventSendResultJSON на backend. null у старых записей/если
+    // шлюз ещё не задеплоен с этим полем.
+    val code: String? = null
 )
 
 @Serializable

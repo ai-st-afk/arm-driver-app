@@ -68,10 +68,16 @@ func resultXMLToJSON(result resultXML) eventSendResponse {
 		Events: make([]eventSendResultJSON, 0, len(result.Events)),
 	}
 	for _, event := range result.Events {
+		accepted := strings.EqualFold(event.Accepted, "true")
+		code := ""
+		if !accepted {
+			code = "one_c_rejected"
+		}
 		response.Events = append(response.Events, eventSendResultJSON{
 			ID:       event.ID,
-			Accepted: strings.EqualFold(event.Accepted, "true"),
+			Accepted: accepted,
 			Error:    event.Error,
+			Code:     code,
 		})
 	}
 	return response

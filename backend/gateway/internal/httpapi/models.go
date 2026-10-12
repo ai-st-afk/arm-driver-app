@@ -176,6 +176,11 @@ type eventSendResultJSON struct {
 	ID       string `json:"id"`
 	Accepted bool   `json:"accepted"`
 	Error    string `json:"error,omitempty"`
+	// 1С в контракте события отдаёт только текст ошибки, без кода (см.
+	// eventResultXML) — код здесь наш собственный, тот же "one_c_rejected",
+	// что уже используют отказы фото (server.go), чтобы в приложении у
+	// каждой причины "не отправлено" был код в скобках для диагностики.
+	Code string `json:"code,omitempty"`
 }
 
 type errorResponse struct {

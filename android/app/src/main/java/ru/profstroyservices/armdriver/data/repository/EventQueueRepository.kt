@@ -104,7 +104,11 @@ class EventQueueRepository @Inject constructor(
             } else {
                 // Причину отказа 1С присылает вместе с ответом — раньше мы её
                 // выбрасывали, и водитель видел только счётчик «не отправлено».
-                dao.markRejected(result.id, result.error ?: "1С не приняла событие")
+                // Код в скобках — свой у шлюза (1С кода не даёт, только текст),
+                // чтобы при жалобе можно было сослаться на конкретный код, а не
+                // пересказывать текст своими словами.
+                val reason = result.error ?: "1С не приняла событие"
+                dao.markRejected(result.id, "$reason (${result.code ?: "one_c_rejected"})")
             }
         }
     }
