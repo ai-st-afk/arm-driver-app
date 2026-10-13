@@ -77,6 +77,37 @@ class AssignmentStateTest {
     // Нововведение 2026-10-13: механик выдаёт ключи своим АРМ, отдельно от
     // диспетчера — до этого "Начать смену" недоступна, даже если
     // разнарядка принята (architecture.md §14).
+    // Нововведение 2026-10-13: мы автоматически подтверждаем новую версию,
+    // если разница между ней и старой — только ключи, чтобы водитель не
+    // жал "Ознакомился и принял" заново из-за флага механика.
+    @Test
+    fun keysOnlyVersionBumpIsTrivial() {
+        val old = assignment("A", version = 1, keysIssued = false)
+        val new = assignment("A", version = 2, keysIssued = true)
+        assertTrue(isTrivialKeysVersionBump(old, new))
+    }
+
+    @Test
+    fun routeChangeAlongsideVersionBumpIsNotTrivial() {
+        val old = assignment("A", version = 1, keysIssued = false)
+        val new = assignment("A", version = 2, keysIssued = true, trips = listOf(trip("A-t1", 1), trip("A-t3", 3)))
+        assertFalse(isTrivialKeysVersionBump(old, new))
+    }
+
+    @Test
+    fun sameVersionIsNotABumpAtAll() {
+        val old = assignment("A", version = 1, keysIssued = false)
+        val new = assignment("A", version = 1, keysIssued = true)
+        assertFalse(isTrivialKeysVersionBump(old, new))
+    }
+
+    @Test
+    fun olderVersionIsNeverTrivial() {
+        val old = assignment("A", version = 2, keysIssued = true)
+        val new = assignment("A", version = 1, keysIssued = false)
+        assertFalse(isTrivialKeysVersionBump(old, new))
+    }
+
     @Test
     fun acceptedWithoutKeysCannotStartShift() {
         val state = assignmentState(
