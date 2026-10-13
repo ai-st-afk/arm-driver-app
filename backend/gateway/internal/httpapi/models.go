@@ -3,15 +3,22 @@ package httpapi
 import "encoding/xml"
 
 type assignmentXML struct {
-	XMLName      xml.Name   `xml:"Разнарядка"`
-	ID           string     `xml:"Идентификатор"`
-	Version      int        `xml:"Версия"`
-	Number       string     `xml:"Номер"`
-	DepartureDay string     `xml:"ДатаВыезда"`
-	Status       string     `xml:"Статус"`
-	CancelReason string     `xml:"ПричинаОтмены"`
-	PlanDepart   string     `xml:"ПланВыезда"`
-	PlanReturn   string     `xml:"ПланВозврата"`
+	XMLName      xml.Name `xml:"Разнарядка"`
+	ID           string   `xml:"Идентификатор"`
+	Version      int      `xml:"Версия"`
+	Number       string   `xml:"Номер"`
+	DepartureDay string   `xml:"ДатаВыезда"`
+	Status       string   `xml:"Статус"`
+	CancelReason string   `xml:"ПричинаОтмены"`
+	PlanDepart   string   `xml:"ПланВыезда"`
+	PlanReturn   string   `xml:"ПланВозврата"`
+	// Строка, не bool — по тому же соображению, что и "принято" у событий
+	// (resultXMLToJSON): свой явный разбор без риска, что encoding/xml
+	// откажется парсить, если 1С отдаст регистр/формат не строго "true"/
+	// "false". Старые разнарядки без этого элемента — пустая строка,
+	// что ниже превращается в false (механик ключи не выдавал).
+	KeysIssued   string     `xml:"КлючиВыданы"`
+	KeysIssuedAt string     `xml:"ВремяВыдачиКлючей"`
 	Driver       personXML  `xml:"Водитель"`
 	Vehicle      vehicleXML `xml:"Машина"`
 	Trips        []tripXML  `xml:"Ездки>Ездка"`
@@ -141,7 +148,11 @@ type assignmentResponse struct {
 	Vehicle      vehicleXML `json:"vehicle"`
 	PlanDepart   string     `json:"plan_depart,omitempty"`
 	PlanReturn   string     `json:"plan_return,omitempty"`
-	Trips        []tripXML  `json:"trips"`
+	// Механик выдал ключи — своим АРМ, отдельно от диспетчера. Без этого
+	// "Начать смену" на телефоне недоступна (см. AGENTS.md).
+	KeysIssued   bool      `json:"keys_issued"`
+	KeysIssuedAt string    `json:"keys_issued_at,omitempty"`
+	Trips        []tripXML `json:"trips"`
 }
 
 type eventsRequest struct {

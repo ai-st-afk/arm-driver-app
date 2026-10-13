@@ -67,6 +67,11 @@ data class AssignmentDto(
     val vehicle: VehicleDto,
     @SerialName("plan_depart") val planDepart: String? = null,
     @SerialName("plan_return") val planReturn: String? = null,
+    // Механик выдал ключи своим АРМ, отдельно от диспетчера — пока false,
+    // "Начать смену" недоступна (см. AssignmentState.canStartShift).
+    // Старый кэш/разнарядки без этого контракта — default false, не true.
+    @SerialName("keys_issued") val keysIssued: Boolean = false,
+    @SerialName("keys_issued_at") val keysIssuedAt: String? = null,
     val trips: List<TripDto> = emptyList()
 )
 

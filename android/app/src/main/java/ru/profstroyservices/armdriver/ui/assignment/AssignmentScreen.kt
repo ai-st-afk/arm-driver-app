@@ -229,11 +229,21 @@ private fun AssignmentContent(
             }
             Button(
                 onClick = onStartShift,
-                enabled = state.phase == AssignmentPhase.ACCEPTED && content.otherOpenShiftLabel == null,
+                enabled = state.canStartShift && content.otherOpenShiftLabel == null,
                 modifier = Modifier.fillMaxWidth().height(ButtonHeight),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
                 Text("Начать смену", style = MaterialTheme.typography.labelLarge)
+            }
+            // Механик выдаёт ключи своим АРМ, отдельно от диспетчера —
+            // до этого "Начать смену" недоступна, даже если разнарядка уже
+            // принята (нововведение 2026-10-13, architecture.md §14).
+            if (state.phase == AssignmentPhase.ACCEPTED && !assignment.keysIssued) {
+                Text(
+                    text = "Ожидайте выдачи ключей механиком.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
             content.otherOpenShiftLabel?.let { other ->
                 Text(

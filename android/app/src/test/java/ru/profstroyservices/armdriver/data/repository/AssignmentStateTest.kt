@@ -24,7 +24,8 @@ class AssignmentStateTest {
         version: Int = 1,
         status: String = "Активна",
         day: String = "2026-09-22",
-        trips: List<TripDto> = listOf(trip("$id-t1", 1), trip("$id-t2", 2))
+        trips: List<TripDto> = listOf(trip("$id-t1", 1), trip("$id-t2", 2)),
+        keysIssued: Boolean = false
     ) = AssignmentDto(
         id = id,
         version = version,
@@ -33,7 +34,8 @@ class AssignmentStateTest {
         status = status,
         driver = PersonDto(id = "driver"),
         vehicle = VehicleDto(id = "vehicle"),
-        trips = trips
+        trips = trips,
+        keysIssued = keysIssued
     )
 
     private fun event(
@@ -70,6 +72,38 @@ class AssignmentStateTest {
     fun acknowledgeOfCurrentVersionAccepts() {
         val state = assignmentState(assignment("A"), listOf(event("A", EventTypes.OZNAKOMLENIE)))
         assertEquals(AssignmentPhase.ACCEPTED, state.phase)
+    }
+
+    // Нововведение 2026-10-13: механик выдаёт ключи своим АРМ, отдельно от
+    // диспетчера — до этого "Начать смену" недоступна, даже если
+    // разнарядка принята (architecture.md §14).
+    @Test
+    fun acceptedWithoutKeysCannotStartShift() {
+        val state = assignmentState(
+            assignment("A", keysIssued = false),
+            listOf(event("A", EventTypes.OZNAKOMLENIE))
+        )
+        assertEquals(AssignmentPhase.ACCEPTED, state.phase)
+        assertFalse(state.canStartShift)
+    }
+
+    @Test
+    fun acceptedWithKeysCanStartShift() {
+        val state = assignmentState(
+            assignment("A", keysIssued = true),
+            listOf(event("A", EventTypes.OZNAKOMLENIE))
+        )
+        assertEquals(AssignmentPhase.ACCEPTED, state.phase)
+        assertTrue(state.canStartShift)
+    }
+
+    // Ключи выданы, но разнарядка ещё не принята (не было Ознакомления) —
+    // фаза важнее: начинать смену рано вне зависимости от ключей.
+    @Test
+    fun newAssignmentCannotStartShiftEvenWithKeys() {
+        val state = assignmentState(assignment("A", keysIssued = true), emptyList())
+        assertEquals(AssignmentPhase.NEW, state.phase)
+        assertFalse(state.canStartShift)
     }
 
     // 1С: новая версия до начала смены сбрасывает Ознакомление.

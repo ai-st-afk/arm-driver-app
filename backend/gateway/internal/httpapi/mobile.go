@@ -17,6 +17,10 @@ func assignmentToResponse(a assignmentXML) assignmentResponse {
 		Vehicle:      a.Vehicle,
 		PlanDepart:   a.PlanDepart,
 		PlanReturn:   a.PlanReturn,
+		// Старые разнарядки (до этого контракта) не несут элемент вообще —
+		// пустая строка, EqualFold с "true" даёт false, как и просил механик.
+		KeysIssued:   strings.EqualFold(a.KeysIssued, "true"),
+		KeysIssuedAt: a.KeysIssuedAt,
 		Trips:        a.Trips,
 	}
 }

@@ -260,6 +260,56 @@ func TestAssignmentXMLStoredAndReturnedAsMobileJSON(t *testing.T) {
 	if !strings.Contains(getRec.Body.String(), `"address":"Окуни"`) {
 		t.Fatalf("mobile JSON does not contain short address: %s", getRec.Body.String())
 	}
+	// Разнарядка без <КлючиВыданы> (контракт до этого элемента) — ключи
+	// считаются не выданными, а не угадываются как true.
+	if !strings.Contains(getRec.Body.String(), `"keys_issued":false`) {
+		t.Fatalf("mobile JSON does not default keys_issued to false for an assignment without the element: %s", getRec.Body.String())
+	}
+}
+
+// Механик выдаёт ключи своим АРМ — та же разнарядка, тот же Идентификатор,
+// увеличенная Версия, добавлен <КлючиВыданы>true</КлючиВыданы>. Телефон
+// должен увидеть true и время выдачи.
+func TestAssignmentKeysIssuedSurfacedToMobile(t *testing.T) {
+	api := newTestServer(t, config.Config{
+		GatewayToken: "one-c-token",
+		MobileToken:  "mobile-token",
+	})
+	assignment := `<?xml version="1.0" encoding="UTF-8"?>
+<Разнарядка>
+  <Идентификатор>b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f</Идентификатор>
+  <Версия>2</Версия>
+  <Номер>ПрТр-000412</Номер>
+  <Статус>Активна</Статус>
+  <КлючиВыданы>true</КлючиВыданы>
+  <ВремяВыдачиКлючей>2026-10-13T08:15:00+03:00</ВремяВыдачиКлючей>
+  <Водитель><Идентификатор>3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162</Идентификатор><ФИО>Иванов Иван Иванович</ФИО></Водитель>
+  <Машина><Идентификатор>7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d</Идентификатор></Машина>
+</Разнарядка>`
+
+	post := httptest.NewRequest(http.MethodPost, "/api/1c/assignments", strings.NewReader(assignment))
+	post.Header.Set("Content-Type", "application/xml; charset=utf-8")
+	post.Header.Set("X-Auth-Token", "one-c-token")
+	postRec := httptest.NewRecorder()
+	api.Routes().ServeHTTP(postRec, post)
+	if postRec.Code != http.StatusOK {
+		t.Fatalf("assignment post status = %d, body = %s", postRec.Code, postRec.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/mobile/assignments?driver_id=3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162", nil)
+	get.Header.Set("X-Auth-Token", "mobile-token")
+	getRec := httptest.NewRecorder()
+	api.Routes().ServeHTTP(getRec, get)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("assignment get status = %d, body = %s", getRec.Code, getRec.Body.String())
+	}
+	if !strings.Contains(getRec.Body.String(), `"keys_issued":true`) {
+		t.Fatalf("mobile JSON does not contain keys_issued=true: %s", getRec.Body.String())
+	}
+	if !strings.Contains(getRec.Body.String(), `"keys_issued_at":"2026-10-13T08:15:00+03:00"`) {
+		t.Fatalf("mobile JSON does not contain keys_issued_at: %s", getRec.Body.String())
+	}
 }
 
 func TestListAssignmentsReturnsAllForDriverNotJustLatest(t *testing.T) {

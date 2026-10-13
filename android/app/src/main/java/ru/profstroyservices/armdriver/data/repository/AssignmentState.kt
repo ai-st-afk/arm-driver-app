@@ -57,6 +57,9 @@ data class AssignmentState(
     // выполнены или сняты диспетчером. Досрочно — только через диспетчера.
     val canEndShift: Boolean get() = phase == AssignmentPhase.IN_SHIFT && allTripsResolved
     val canMarkTrips: Boolean get() = phase == AssignmentPhase.IN_SHIFT && !cancelledByDispatcher
+    // Механик ещё не выдал ключи своим АРМ — "Начать смену" недоступна,
+    // даже если разнарядка принята (нововведение 2026-10-13).
+    val canStartShift: Boolean get() = phase == AssignmentPhase.ACCEPTED && assignment.keysIssued
 }
 
 fun assignmentState(assignment: AssignmentDto, events: List<PendingEventEntity>): AssignmentState {
