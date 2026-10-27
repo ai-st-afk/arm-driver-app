@@ -1,6 +1,12 @@
 package ru.profstroyservices.armdriver.data.repository
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +50,7 @@ class QueueRepository @Inject constructor(
     // Запрос, который не долетел до шлюза, не попадает ни в чьё lastError —
     // это не ответ 1С, а провал самого похода в сеть. Держим последнюю
     // причину отдельно от БД-состояния, очищаем на следующий успешный flush.
+    private val uploadMutex = Mutex()
     private val _networkError = MutableStateFlow<String?>(null)
 
     val state: Flow<QueueState> = combine(
@@ -63,15 +70,29 @@ class QueueRepository @Inject constructor(
 
     // Падение одного потока не должно мешать другому: фото и события уходят
     // независимо (у 1С это вообще разные эндпоинты).
-    suspend fun flush() {
-        val eventsResult = runCatching { events.sendPending() }
-        val documentsResult = runCatching { documents.uploadPending() }
-        // Оба успели — сеть работает, старая ошибка больше не актуальна.
-        // Упал хотя бы один — показываем его причину, не различая, какой
-        // именно поток: водителю важно «есть связь или нет», а не детали.
-        val failure = eventsResult.exceptionOrNull() ?: documentsResult.exceptionOrNull()
+    suspend fun flush() = uploadMutex.withLock {
+        val failure = flushQueues(events::sendPending, documents::uploadPending)
+        if (failure != null) Log.e("QueueRepository", "Queue upload failed", failure)
         _networkError.value = failure?.userMessage()
     }
+}
+
+internal suspend fun flushQueues(
+    sendEvents: suspend () -> Unit,
+    uploadDocuments: suspend () -> Unit
+): Throwable? {
+    // Новый шаг/закрытие экрана отменяет прежнюю отправку. Это не отказ
+    // сервера: отмена не должна превращаться в unknown_error в баннере.
+    currentCoroutineContext().ensureActive()
+    val eventsResult = runCatching { sendEvents() }.onFailure {
+        if (it is CancellationException) throw it
+    }
+    currentCoroutineContext().ensureActive()
+    val documentsResult = runCatching { uploadDocuments() }.onFailure {
+        if (it is CancellationException) throw it
+    }
+    currentCoroutineContext().ensureActive()
+    return eventsResult.exceptionOrNull() ?: documentsResult.exceptionOrNull()
 }
 
 // Без этой задержки баннер «Не отправлено» загорался на каждое нажатие

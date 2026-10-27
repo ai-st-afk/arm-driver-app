@@ -38,8 +38,40 @@ data class CargoDto(
     val quantity: String? = null,
     val unit: String? = null,
     val weight: String? = null,
-    val volume: String? = null
+    val volume: String? = null,
+    val positions: CargoPositionsDto? = null
 )
+
+@Serializable
+data class CargoPositionsDto(val items: List<CargoPositionDto> = emptyList())
+
+@Serializable
+data class CargoPositionDto(
+    @SerialName("product_id") val productId: String,
+    val name: String,
+    val unit: String,
+    val quantity: String,
+    val weight: String,
+    val volume: String
+)
+
+@Serializable
+data class CargoTotalDto(
+    val positions: CargoPositionsDto,
+    val weight: String,
+    val volume: String
+)
+
+@Serializable
+data class TripContactDto(
+    val purpose: String,
+    val role: String,
+    val name: String,
+    val phones: List<ContactPhoneDto> = emptyList()
+)
+
+@Serializable
+data class ContactPhoneDto(val display: String, val number: String)
 
 @Serializable
 data class TripDto(
@@ -52,7 +84,8 @@ data class TripDto(
     @SerialName("unload_point") val unloadPoint: PointDto,
     @SerialName("plan_load") val planLoad: String? = null,
     @SerialName("plan_unload") val planUnload: String? = null,
-    val cargo: CargoDto = CargoDto()
+    val cargo: CargoDto = CargoDto(),
+    val contacts: List<TripContactDto> = emptyList()
 )
 
 @Serializable
@@ -72,7 +105,8 @@ data class AssignmentDto(
     // Старый кэш/разнарядки без этого контракта — default false, не true.
     @SerialName("keys_issued") val keysIssued: Boolean = false,
     @SerialName("keys_issued_at") val keysIssuedAt: String? = null,
-    val trips: List<TripDto> = emptyList()
+    val trips: List<TripDto> = emptyList(),
+    @SerialName("shift_total") val shiftTotal: CargoTotalDto? = null
 )
 
 @Serializable

@@ -90,7 +90,6 @@ class RoadmapViewModel @Inject constructor(
     private var flushJob: Job? = null
 
     init {
-        refreshFromNetwork()
         viewModelScope.launch { queue.flush() }
     }
 

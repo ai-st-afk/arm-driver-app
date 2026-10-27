@@ -1,14 +1,78 @@
 package ru.profstroyservices.armdriver.data.repository
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertNull
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class QueueRepositoryTest {
+
+    @Test
+    fun `cancelling event upload does not publish error or start photo upload`() = runTest {
+        var documentsStarted = false
+        var published = false
+        val job = launch {
+            flushQueues(
+                sendEvents = { awaitCancellation() },
+                uploadDocuments = { documentsStarted = true }
+            )
+            published = true
+        }
+        runCurrent()
+        job.cancel()
+        job.join()
+
+        assertFalse(documentsStarted)
+        assertFalse(published)
+    }
+
+    @Test
+    fun `cancelling photo upload does not publish error`() = runTest {
+        var published = false
+        val job = launch {
+            flushQueues(sendEvents = {}, uploadDocuments = { awaitCancellation() })
+            published = true
+        }
+        runCurrent()
+        job.cancel()
+        job.join()
+
+        assertFalse(published)
+    }
+
+    @Test
+    fun `event failure still allows photos and remains visible`() = runTest {
+        val failure = IOException("offline")
+        var documentsUploaded = false
+
+        val result = flushQueues(
+            sendEvents = { throw failure },
+            uploadDocuments = { documentsUploaded = true }
+        )
+
+        assertTrue(documentsUploaded)
+        assertSame(failure, result)
+    }
+
+    @Test
+    fun `photo failure is preserved and successful flush clears failure`() = runTest {
+        val failure = IOException("upload failed")
+        assertSame(failure, flushQueues(sendEvents = {}, uploadDocuments = { throw failure }))
+        assertNull(flushQueues(sendEvents = {}, uploadDocuments = {}))
+    }
 
     @Test
     fun `transient pending count resolved within grace never surfaces`() = runTest {

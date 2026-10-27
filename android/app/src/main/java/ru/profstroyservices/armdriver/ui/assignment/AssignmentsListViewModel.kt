@@ -53,10 +53,6 @@ class AssignmentsListViewModel @Inject constructor(
             assignmentsListState(all)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AssignmentsListUiState.Loading)
 
-    init {
-        refresh()
-    }
-
     fun refresh() {
         viewModelScope.launch {
             states.refresh()

@@ -1,0 +1,135 @@
+{
+  "id": "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f",
+  "version": 3,
+  "departure_day": "2026-09-10",
+  "status": "Активна",
+  "driver": {
+    "id": "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162"
+  },
+  "vehicle": {
+    "id": "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d"
+  },
+  "shift_total": {
+    "positions": {
+      "items": [
+        {
+          "product_id": "5d0c7e12-3a4b-4c8d-9e1f-2a3b4c5d6e7f",
+          "name": "Плита ПК 60-15",
+          "unit": "шт",
+          "quantity": "4.000",
+          "weight": "6.200",
+          "volume": "2.400"
+        },
+        {
+          "product_id": "8b1a2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+          "name": "Блок ФБС 24-4",
+          "unit": "шт",
+          "quantity": "6.000",
+          "weight": "12.300",
+          "volume": "4.800"
+        }
+      ]
+    },
+    "weight": "18.500",
+    "volume": "7.200"
+  },
+  "trips": [
+    {
+      "id": "e5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b",
+      "order": 1,
+      "status": "Назначена",
+      "load_point": {},
+      "unload_point": {},
+      "cargo": {
+        "composition": "Плита ПК 60-15 — 4.000; Блок ФБС 24-4 — 6.000",
+        "quantity": "10.000",
+        "unit": "шт",
+        "weight": "18.500",
+        "volume": "7.200",
+        "positions": {
+          "items": [
+            {
+              "product_id": "5d0c7e12-3a4b-4c8d-9e1f-2a3b4c5d6e7f",
+              "name": "Плита ПК 60-15",
+              "unit": "шт",
+              "quantity": "4.000",
+              "weight": "6.200",
+              "volume": "2.400"
+            },
+            {
+              "product_id": "8b1a2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+              "name": "Блок ФБС 24-4",
+              "unit": "шт",
+              "quantity": "6.000",
+              "weight": "12.300",
+              "volume": "4.800"
+            }
+          ]
+        }
+      },
+      "contacts": [
+        {
+          "purpose": "Разгрузка",
+          "role": "Контактное лицо",
+          "name": "Евгений Петров",
+          "phones": [
+            {
+              "display": "8 (8332) 40-55-50",
+              "number": "+78332405550"
+            },
+            {
+              "display": "+7 912 345-67-89",
+              "number": "+79123456789"
+            }
+          ]
+        },
+        {
+          "purpose": "Разгрузка",
+          "role": "Ответственный за приёмку",
+          "name": "Сидоров А. В.",
+          "phones": [
+            {
+              "display": "+7 922 111-22-33",
+              "number": "+79221112233"
+            }
+          ]
+        },
+        {
+          "purpose": "Разгрузка",
+          "role": "Контактное лицо",
+          "name": "Без телефона"
+        },
+        {
+          "purpose": "Разгрузка",
+          "role": "Контактное лицо",
+          "name": "",
+          "phones": [
+            {
+              "display": "40-55-50",
+              "number": "405550"
+            },
+            {
+              "display": "нет телефона",
+              "number": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "f5f6a7b8-1c2d-4e3f-9a0b-5c6d7e8f9a0b",
+      "order": 2,
+      "status": "Отменена",
+      "load_point": {},
+      "unload_point": {},
+      "cargo": {
+        "composition": "Плита ПК 60-15 — 4.000; Блок ФБС 24-4 — 6.000",
+        "quantity": "10.000",
+        "unit": "шт",
+        "weight": "18.500",
+        "volume": "7.200",
+        "positions": {}
+      }
+    }
+  ]
+}

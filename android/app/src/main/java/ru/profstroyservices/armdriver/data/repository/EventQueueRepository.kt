@@ -54,7 +54,7 @@ class EventQueueRepository @Inject constructor(
         // запрещает дослать метку к уже отправленному событию задним числом,
         // так что брать координату нужно именно сейчас, а не при фактической
         // отправке (та может случиться много позже, в т.ч. офлайн).
-        val geoFix = geoTagProvider.lastKnownFix()
+        val geoFix = geoTagProvider.lastKnownFix(id)
         dao.insert(
             PendingEventEntity(
                 id = id,

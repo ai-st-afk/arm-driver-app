@@ -12,6 +12,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -100,6 +101,20 @@ fun ServiceScreen(
                     color = MaterialTheme.colorScheme.error
                 )
             }
+
+            Text(
+                "Очистка убирает загруженные разнарядки только с этого телефона. " +
+                    "События, фото и привязка водителя сохраняются. Если разнарядки есть на сервере, они загрузятся снова.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedButton(
+                onClick = viewModel::clearAssignments,
+                enabled = !uiState.clearingAssignments,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (uiState.clearingAssignments) "Очистка…" else "Очистить разнарядки на телефоне")
+            }
+            uiState.clearMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 
             TextButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
                 Text("Закрыть")

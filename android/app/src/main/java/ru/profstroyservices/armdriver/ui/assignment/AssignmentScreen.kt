@@ -46,6 +46,7 @@ import ru.profstroyservices.armdriver.R
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
+import ru.profstroyservices.armdriver.ui.components.CargoDetails
 import ru.profstroyservices.armdriver.ui.components.LabeledField
 import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
 import ru.profstroyservices.armdriver.ui.theme.statusActiveContainer
@@ -200,6 +201,22 @@ private fun AssignmentContent(
             value = "${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim()
         )
         LabeledField(label = "Рейсов на смену", value = state.trips.size.toString())
+        state.trips.forEach { progress ->
+            progress.trip.trailer.plate?.takeIf { it.isNotBlank() }?.let { plate ->
+                LabeledField(
+                    label = "Прицеп · рейс ${progress.trip.order}" + if (progress.isCancelled) " (снят)" else "",
+                    value = plate
+                )
+            }
+        }
+    }
+
+    Text("Итого за смену", style = MaterialTheme.typography.titleMedium)
+    val shiftTotal = assignment.shiftTotal
+    if (shiftTotal == null) {
+        Text("Итог за смену ещё не передан", style = MaterialTheme.typography.bodyMedium)
+    } else {
+        CargoDetails(shiftTotal.positions, shiftTotal.weight, shiftTotal.volume)
     }
 
     state.updatedAt?.let { updatedAt ->

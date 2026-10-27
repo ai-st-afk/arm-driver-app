@@ -101,8 +101,11 @@ fun assignmentState(assignment: AssignmentDto, events: List<PendingEventEntity>)
 // Текущая разнарядка — одна на всё приложение: по ней вкладка «Мои рейсы» и
 // строка статуса сверху. Сначала та, где идёт смена (если их вдруг
 // несколько — последняя начатая), иначе ближайшая ещё не начатая.
+// При равных дате/номере или времени начала выбираем по GUID: INSERT OR
+// REPLACE в Room меняет порядок строк, который не должен переключать рейсы.
 fun currentAssignment(states: List<AssignmentState>): AssignmentState? =
-    states.filter { it.phase == AssignmentPhase.IN_SHIFT }.maxByOrNull { it.shiftStartedAt ?: OffsetDateTime.MIN }
+    states.filter { it.phase == AssignmentPhase.IN_SHIFT }
+        .maxWithOrNull(compareBy({ it.shiftStartedAt ?: OffsetDateTime.MIN }, { it.id }))
         ?: states
             .filter { it.phase == AssignmentPhase.NEW || it.phase == AssignmentPhase.ACCEPTED }
-            .minWithOrNull(compareBy({ it.assignment.departureDay }, { it.label }))
+            .minWithOrNull(compareBy({ it.assignment.departureDay }, { it.label }, { it.id }))

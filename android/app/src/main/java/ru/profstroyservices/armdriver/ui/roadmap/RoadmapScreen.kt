@@ -70,7 +70,8 @@ import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.data.repository.TripProgress
 import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.LabeledField
-import ru.profstroyservices.armdriver.ui.components.cargoValue
+import ru.profstroyservices.armdriver.ui.components.CargoDetails
+import ru.profstroyservices.armdriver.ui.components.TripContacts
 import ru.profstroyservices.armdriver.ui.components.firstNotBlank
 import ru.profstroyservices.armdriver.ui.components.formatTime
 import ru.profstroyservices.armdriver.ui.components.pointLabel
@@ -361,6 +362,12 @@ private fun TripRow(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             CollapsedHeader(state = state, isActive = isActive)
+            state.trip.trailer.plate?.takeIf { it.isNotBlank() }?.let {
+                LabeledField(label = "Прицеп", value = it)
+            }
+            state.trip.cargo.let { cargo ->
+                CargoDetails(cargo.positions, cargo.weight, cargo.volume, cargo.composition)
+            }
 
             if (expanded) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -441,11 +448,7 @@ private fun ExpandedDetails(
         LabeledField(label = "Погрузка", value = pointLabel(trip.loadPoint), onClick = navigateAction(trip.loadPoint))
         LabeledField(label = "Разгрузка", value = pointLabel(trip.unloadPoint), onClick = navigateAction(trip.unloadPoint))
         trip.customer?.takeIf { it.isNotBlank() }?.let { LabeledField(label = "Заказчик", value = it) }
-        trip.trailer.plate?.takeIf { it.isNotBlank() }?.let { LabeledField(label = "Прицеп", value = it) }
-        trip.cargo.composition?.takeIf { it.isNotBlank() }?.let { LabeledField(label = "Груз", value = it) }
-        cargoValue(trip.cargo.quantity, trip.cargo.unit)?.let { LabeledField(label = "Количество", value = it) }
-        cargoValue(trip.cargo.weight, "т")?.let { LabeledField(label = "Вес", value = it) }
-        cargoValue(trip.cargo.volume, "м³")?.let { LabeledField(label = "Объём", value = it) }
+        TripContacts(trip.contacts)
     }
 
     when {

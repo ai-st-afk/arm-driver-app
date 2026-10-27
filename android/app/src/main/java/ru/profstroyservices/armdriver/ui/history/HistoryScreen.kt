@@ -69,6 +69,19 @@ private fun HistoryRow(item: HistoryItemUiState) {
             )
             Text(text = formatEventDateTime(item.time), style = MaterialTheme.typography.bodySmall)
             Text(
+                text = if (item.hasGeoTag) "Геометка записана" else "Геометка не записана",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (item.hasGeoTag) {
+                item.locationFixTime?.let { time ->
+                    Text(
+                        text = "Координаты определены: ${formatEventDateTime(time)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            Text(
                 text = when {
                     item.cancelled -> "отменено водителем"
                     item.sent -> "отправлено"

@@ -19,7 +19,9 @@ data class HistoryItemUiState(
     val time: String,
     val sent: Boolean,
     val cancelled: Boolean,
-    val error: String?
+    val error: String?,
+    val hasGeoTag: Boolean,
+    val locationFixTime: String?
 )
 
 private val eventTypeLabels = mapOf(
@@ -52,7 +54,9 @@ class HistoryViewModel @Inject constructor(
                     time = event.time,
                     sent = event.sent,
                     cancelled = event.cancelled,
-                    error = event.lastError
+                    error = event.lastError,
+                    hasGeoTag = event.latitude != null && event.longitude != null,
+                    locationFixTime = event.locationFixTime
                 )
             }
         }

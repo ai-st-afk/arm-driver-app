@@ -12,6 +12,12 @@ interface CachedAssignmentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(assignment: CachedAssignmentEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(assignments: List<CachedAssignmentEntity>)
+
+    @Query("DELETE FROM cached_assignments")
+    suspend fun clearAll()
+
     @Query("SELECT * FROM cached_assignments WHERE driverId = :driverId ORDER BY updatedAt DESC")
     suspend fun getAllForDriver(driverId: String): List<CachedAssignmentEntity>
 

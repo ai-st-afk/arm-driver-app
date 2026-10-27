@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Looper
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -12,6 +13,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -47,6 +49,7 @@ data class GeoFix(val latitude: Double, val longitude: Double, val accuracy: Int
 // ничего не попадает сами по себе, читаем всё равно через lastLocation() в
 // момент нажатия), а именно поддержание «последней известной ОС» свежей.
 private const val WARM_INTERVAL_MILLIS = 3 * 60 * 1000L
+private const val TAG = "GeoTagProvider"
 
 @Singleton
 class GeoTagProvider @Inject constructor(@ApplicationContext private val context: Context) {
@@ -60,22 +63,54 @@ class GeoTagProvider @Inject constructor(@ApplicationContext private val context
     private val warmupCallback = object : LocationCallback() {}
 
     fun startWarming() {
-        if (!hasPermission()) return
-        val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, WARM_INTERVAL_MILLIS)
+        if (!hasPermission()) {
+            Log.w(TAG, "Location warmup skipped: permission missing")
+            return
+        }
+        // Экономичный режим не гарантирует получение GPS-фикса. При точном
+        // разрешении используем высокую точность, только пока экран открыт.
+        val precise = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        val priority = if (precise) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        val request = LocationRequest.Builder(priority, WARM_INTERVAL_MILLIS)
             .setMinUpdateIntervalMillis(WARM_INTERVAL_MILLIS)
             .build()
         @Suppress("MissingPermission") // hasPermission() уже проверен выше
-        runCatching { client.requestLocationUpdates(request, warmupCallback, Looper.getMainLooper()) }
+        runCatching {
+            client.requestLocationUpdates(request, warmupCallback, Looper.getMainLooper())
+                .addOnFailureListener { Log.e(TAG, "Location warmup failed", it) }
+        }.onFailure { Log.e(TAG, "Location warmup failed", it) }
     }
 
     fun stopWarming() {
-        client.removeLocationUpdates(warmupCallback)
+        runCatching {
+            client.removeLocationUpdates(warmupCallback)
+                .addOnFailureListener { Log.e(TAG, "Stopping location warmup failed", it) }
+        }.onFailure { Log.e(TAG, "Stopping location warmup failed", it) }
     }
 
-    suspend fun lastKnownFix(): GeoFix? {
-        if (!hasPermission()) return null
-        val location = runCatching { currentLastLocation() }.getOrNull() ?: return null
-        if (location.latitude == 0.0 && location.longitude == 0.0) return null
+    suspend fun lastKnownFix(eventId: String): GeoFix? {
+        if (!hasPermission()) {
+            Log.w(TAG, "event=$eventId geo=missing reason=permission_missing")
+            return null
+        }
+        val location = try {
+            currentLastLocation()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "event=$eventId geo=missing reason=location_error", e)
+            return null
+        }
+        if (location == null) {
+            Log.w(TAG, "event=$eventId geo=missing reason=empty_location_cache")
+            return null
+        }
+        if (location.latitude == 0.0 && location.longitude == 0.0) {
+            Log.w(TAG, "event=$eventId geo=missing reason=zero_coordinates")
+            return null
+        }
+        Log.i(TAG, "event=$eventId geo=present fixTime=${location.time}")
         return GeoFix(
             latitude = location.latitude,
             longitude = location.longitude,
@@ -98,6 +133,9 @@ class GeoTagProvider @Inject constructor(@ApplicationContext private val context
         @Suppress("MissingPermission") // hasPermission() уже проверен выше
         client.lastLocation
             .addOnSuccessListener { location -> cont.resumeWith(Result.success(location)) }
-            .addOnFailureListener { cont.resumeWith(Result.success(null)) }
+            .addOnFailureListener { cont.resumeWith(Result.failure(it)) }
+            .addOnCanceledListener {
+                cont.resumeWith(Result.failure(IllegalStateException("Location task cancelled")))
+            }
     }
 }

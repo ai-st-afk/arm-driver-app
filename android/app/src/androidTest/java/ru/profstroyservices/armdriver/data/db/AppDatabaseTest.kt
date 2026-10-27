@@ -14,6 +14,8 @@ import org.junit.runner.RunWith
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
 import ru.profstroyservices.armdriver.data.network.PersonDto
 import ru.profstroyservices.armdriver.data.network.VehicleDto
+import ru.profstroyservices.armdriver.data.repository.assignmentState
+import ru.profstroyservices.armdriver.data.repository.currentAssignment
 
 @RunWith(AndroidJUnit4::class)
 class AppDatabaseTest {
@@ -30,6 +32,55 @@ class AppDatabaseTest {
     @After
     fun closeDb() {
         db.close()
+    }
+
+    @Test
+    fun clearingAssignmentsPreservesEventsAndPhotos() = runBlocking {
+        val assignment = AssignmentDto(
+            id = "assignment", version = 1, departureDay = "2026-10-16", status = "Активна",
+            driver = PersonDto("driver"), vehicle = VehicleDto("vehicle")
+        )
+        db.cachedAssignmentDao().upsertAll(listOf(
+            assignment.toEntity("driver", 1),
+            assignment.copy(id = "second").toEntity("driver", 1)
+        ))
+        val event = PendingEventEntity(
+            id = "event", type = "НачалоСмены", driverId = "driver", assignmentId = "assignment",
+            tripId = null, time = "2026-10-16T09:00:00+03:00", comment = ""
+        )
+        val photo = PendingPhotoEntity("photo", "trip", "driver", "assignment", "/test/photo.jpg")
+        db.pendingEventDao().insert(event)
+        db.pendingPhotoDao().insert(photo)
+
+        db.cachedAssignmentDao().clearAll()
+
+        assertEquals(emptyList<CachedAssignmentEntity>(), db.cachedAssignmentDao().getAllForDriver("driver"))
+        assertEquals(listOf(event), db.pendingEventDao().getUnsent())
+        assertEquals(listOf(photo), db.pendingPhotoDao().getPending())
+    }
+
+    @Test
+    fun refreshingSameNumberAssignmentsDoesNotSwitchCurrent() = runBlocking {
+        val dao = db.cachedAssignmentDao()
+        val first = AssignmentDto(
+            id = "A", version = 1, number = "00000000001", departureDay = "2026-10-15",
+            status = "Активна", driver = PersonDto("driver"), vehicle = VehicleDto("vehicle")
+        )
+        val assignments = listOf(first, first.copy(id = "B"), first.copy(id = "C"))
+        assignments.forEach { dao.upsert(it.toEntity("driver", 1L)) }
+        suspend fun currentID(): String? = currentAssignment(
+            dao.observeAllForDriver("driver").first().map { assignmentState(it.toAssignmentDto(), emptyList()) }
+        )?.id
+        val selected = currentID()
+        for (tick in 2L..8L) {
+            // Открытые рейсы вызывают refreshOne. INSERT OR REPLACE меняет
+            // порядок строк SQLite, хотя GUID/номер/версия документа те же.
+            val opened = assignments.first { it.id == selected }
+            dao.upsert(opened.toEntity("driver", tick))
+            assertEquals("Обновление открытой разнарядки сменило текущую", selected, currentID())
+            assignments.reversed().forEach { dao.upsert(it.toEntity("driver", tick)) }
+            assertEquals("Обновление списка сменило текущую", selected, currentID())
+        }
     }
 
     @Test

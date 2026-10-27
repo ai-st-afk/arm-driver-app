@@ -3,9 +3,13 @@ package ru.profstroyservices.armdriver.data.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -89,6 +93,9 @@ class DocumentRepository @Inject constructor(
             }.onSuccess {
                 dao.deleteById(photo.id)
             }.onFailure { error ->
+                if (error is CancellationException) throw error
+                currentCoroutineContext().ensureActive()
+                Log.e("DocumentRepository", "Photo upload failed: id=${photo.id}", error)
                 // Запись остаётся, подхватится следующим «Повторить» — но
                 // раньше причина здесь терялась молча, водитель видел только
                 // голую цифру «не отправлено». Частый случай — 1С временно

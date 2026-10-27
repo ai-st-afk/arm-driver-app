@@ -22,6 +22,7 @@ func assignmentToResponse(a assignmentXML) assignmentResponse {
 		KeysIssued:   strings.EqualFold(a.KeysIssued, "true"),
 		KeysIssuedAt: a.KeysIssuedAt,
 		Trips:        a.Trips,
+		ShiftTotal:   a.ShiftTotal,
 	}
 }
 

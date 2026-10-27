@@ -14,6 +14,27 @@ import ru.profstroyservices.armdriver.data.network.VehicleDto
 
 class AssignmentStateTest {
 
+    @Test
+    fun sameNumberAndDayDoNotChangeCurrentWhenCacheOrderChanges() {
+        val first = assignmentState(assignment("A").copy(number = "00000000001"), emptyList())
+        val second = assignmentState(assignment("B").copy(number = "00000000001"), emptyList())
+        val third = assignmentState(assignment("C").copy(number = "00000000001"), emptyList())
+        for (order in listOf(
+            listOf(first, second, third), listOf(second, third, first), listOf(third, first, second),
+            listOf(third, second, first), listOf(second, first, third), listOf(first, third, second)
+        )) {
+            assertEquals("A", currentAssignment(order)?.id)
+        }
+    }
+
+    @Test
+    fun equalShiftStartTimesDoNotChangeCurrentWhenCacheOrderChanges() {
+        val sameTime = "2026-10-15T10:00:00+03:00"
+        val first = assignmentState(assignment("A"), listOf(event("A", EventTypes.NACHALO_SMENY, time = sameTime)))
+        val second = assignmentState(assignment("B"), listOf(event("B", EventTypes.NACHALO_SMENY, time = sameTime)))
+        assertEquals(currentAssignment(listOf(first, second))?.id, currentAssignment(listOf(second, first))?.id)
+    }
+
     private var eventSeq = 0
 
     private fun trip(id: String, order: Int, status: String = "Активна") =

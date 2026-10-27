@@ -61,10 +61,6 @@ class AssignmentViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AssignmentUiState.Loading)
 
-    init {
-        refresh()
-    }
-
     // При каждом возврате на экран: диспетчер правит разнарядку, новая
     // версия должна быть видна без перезапуска.
     fun refresh() {

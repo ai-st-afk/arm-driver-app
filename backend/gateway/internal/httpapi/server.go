@@ -422,6 +422,13 @@ func (s *Server) receiveEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	body = append([]byte(xml.Header), body...)
 
+	for i, event := range req.Events {
+		s.logger.InfoContext(r.Context(), "mobile event forwarding",
+			"id", event.ID, "driver", event.DriverID, "assignment", event.AssignmentID,
+			"trip", event.TripID, "type", event.Type, "event_time", event.Time,
+			"geo_received", event.GeoTag != nil, "geo_forwarded", events.Events[i].GeoTag != nil)
+	}
+
 	respBody, statusCode, err := s.forwardToOneC(r.Context(), body)
 	if err != nil {
 		s.logger.ErrorContext(r.Context(), "1c forwarding failed", "error", err)
@@ -442,6 +449,7 @@ func (s *Server) receiveEvents(w http.ResponseWriter, r *http.Request) {
 	for _, event := range result.Events {
 		if strings.EqualFold(event.Accepted, "true") {
 			accepted[event.ID] = true
+			s.logger.InfoContext(r.Context(), "1c accepted event", "id", event.ID)
 		} else {
 			// Раньше отказ 1С по конкретному событию был виден только в
 			// ответе телефону, не в логах шлюза — при разборе жалобы

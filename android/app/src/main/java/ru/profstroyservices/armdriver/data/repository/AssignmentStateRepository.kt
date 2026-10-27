@@ -1,7 +1,12 @@
 package ru.profstroyservices.armdriver.data.repository
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -12,6 +17,7 @@ import ru.profstroyservices.armdriver.data.db.PendingEventDao
 import ru.profstroyservices.armdriver.data.db.toAssignmentDto
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,21 +35,26 @@ class AssignmentStateRepository @Inject constructor(
     private val eventQueue: EventQueueRepository,
     private val queue: QueueRepository
 ) {
+    private val listRefreshes = ConcurrentHashMap<String, RefreshGate>()
+    private val detailRefreshes = ConcurrentHashMap<String, RefreshGate>()
+
     fun observeStates(): Flow<List<AssignmentState>> =
         settings.driverId.flatMapLatest { driverId ->
             if (driverId == null) {
                 flowOf(emptyList())
             } else {
-                combine(cache.observeAllForDriver(driverId), events.observeAll()) { cached, allEvents ->
+                val decoded = cache.observeAllForDriver(driverId)
+                    .distinctUntilChanged()
+                    .map { cached -> cached.map { it.toAssignmentDto() to it.updatedAt } }
+                combine(decoded, events.observeAll().distinctUntilChanged()) { cached, allEvents ->
                     val byAssignment = allEvents.groupBy { it.assignmentId }
-                    cached.map { entity ->
-                        val assignment = entity.toAssignmentDto()
+                    cached.map { (assignment, updatedAt) ->
                         assignmentState(assignment, byAssignment[assignment.id].orEmpty())
-                            .copy(updatedAt = entity.updatedAt)
+                            .copy(updatedAt = updatedAt)
                     }
                 }
             }
-        }
+        }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
     fun observeState(assignmentId: String): Flow<AssignmentState?> =
         observeStates().map { states -> states.firstOrNull { it.id == assignmentId } }
@@ -53,23 +64,33 @@ class AssignmentStateRepository @Inject constructor(
     // Свежий список с шлюза. Разнарядки, которых шлюз больше не отдаёт
     // (вышли из окна выдачи), из кэша убираем — кроме той, где смена ещё
     // открыта: её водитель должен закрыть сам.
-    suspend fun refresh(): Result<Unit> {
+    suspend fun refresh(force: Boolean = false): Result<Unit> {
         val driverId = settings.driverId.first() ?: return Result.success(Unit)
-        val before = observeStates().first()
-        return assignments.refreshList(driverId).map { fresh ->
-            reacknowledgeTrivialVersionBumps(before, fresh, driverId)
-            val openShift = observeStates().first()
-                .filter { it.phase == AssignmentPhase.IN_SHIFT }
-                .map { it.id }
-            cache.deleteForDriverExcept(driverId, fresh.map { it.id } + openShift)
+        return listRefreshes.getOrPut(driverId) { RefreshGate() }.run(force) {
+            withContext(Dispatchers.Default) {
+                val before = observeStates().first()
+                assignments.refreshList(driverId).map { fresh ->
+                    reacknowledgeTrivialVersionBumps(before, fresh, driverId)
+                    val openShift = observeStates().first()
+                        .filter { it.phase == AssignmentPhase.IN_SHIFT }
+                        .map { it.id }
+                    cache.deleteForDriverExcept(driverId, fresh.map { it.id } + openShift)
+                }
+            }
         }
     }
 
     suspend fun refreshOne(assignmentId: String): Result<Unit> {
         val driverId = settings.driverId.first() ?: return Result.success(Unit)
-        val before = observeStates().first().firstOrNull { it.id == assignmentId }
-        return runCatching { assignments.getById(assignmentId, driverId) }.map { fresh ->
-            if (before != null) reacknowledgeTrivialVersionBumps(listOf(before), listOf(fresh), driverId)
+        return detailRefreshes.getOrPut("$driverId/$assignmentId") { RefreshGate() }.run {
+            withContext(Dispatchers.Default) {
+                val before = observeStates().first().firstOrNull { it.id == assignmentId }
+                runCatching { assignments.getById(assignmentId, driverId) }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .map { fresh ->
+                        if (before != null) reacknowledgeTrivialVersionBumps(listOf(before), listOf(fresh), driverId)
+                    }
+            }
         }
     }
 

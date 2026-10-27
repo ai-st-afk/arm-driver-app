@@ -17,11 +17,12 @@ type assignmentXML struct {
 	// откажется парсить, если 1С отдаст регистр/формат не строго "true"/
 	// "false". Старые разнарядки без этого элемента — пустая строка,
 	// что ниже превращается в false (механик ключи не выдавал).
-	KeysIssued   string     `xml:"КлючиВыданы"`
-	KeysIssuedAt string     `xml:"ВремяВыдачиКлючей"`
-	Driver       personXML  `xml:"Водитель"`
-	Vehicle      vehicleXML `xml:"Машина"`
-	Trips        []tripXML  `xml:"Ездки>Ездка"`
+	KeysIssued   string         `xml:"КлючиВыданы"`
+	KeysIssuedAt string         `xml:"ВремяВыдачиКлючей"`
+	Driver       personXML      `xml:"Водитель"`
+	Vehicle      vehicleXML     `xml:"Машина"`
+	Trips        []tripXML      `xml:"Ездки>Ездка"`
+	ShiftTotal   *cargoTotalXML `xml:"ИтогоЗаСмену"`
 }
 
 type personXML struct {
@@ -47,24 +48,59 @@ type pointXML struct {
 }
 
 type cargoXML struct {
-	Composition string `xml:"Состав" json:"composition,omitempty"`
-	Quantity    string `xml:"Количество" json:"quantity,omitempty"`
-	Unit        string `xml:"ЕдиницаИзмерения" json:"unit,omitempty"`
-	Weight      string `xml:"Вес" json:"weight,omitempty"`
-	Volume      string `xml:"Объем" json:"volume,omitempty"`
+	Composition string             `xml:"Состав" json:"composition,omitempty"`
+	Quantity    string             `xml:"Количество" json:"quantity,omitempty"`
+	Unit        string             `xml:"ЕдиницаИзмерения" json:"unit,omitempty"`
+	Weight      string             `xml:"Вес" json:"weight,omitempty"`
+	Volume      string             `xml:"Объем" json:"volume,omitempty"`
+	Positions   *cargoPositionsXML `xml:"Позиции" json:"positions,omitempty"`
+}
+
+// Указатель на Позиции отличает старый пакет без блока от явно пустого
+// нового: пустой блок нельзя заменять устаревшим Составом/Количеством.
+type cargoPositionsXML struct {
+	Items []cargoPositionXML `xml:"Позиция" json:"items,omitempty"`
+}
+
+type cargoPositionXML struct {
+	ProductID string `xml:"НоменклатураИдентификатор" json:"product_id"`
+	Name      string `xml:"Номенклатура" json:"name"`
+	Unit      string `xml:"ЕдиницаИзмерения" json:"unit"`
+	Quantity  string `xml:"Количество" json:"quantity"`
+	Weight    string `xml:"Вес" json:"weight"`
+	Volume    string `xml:"Объем" json:"volume"`
+}
+
+type cargoTotalXML struct {
+	Positions cargoPositionsXML `xml:"Позиции" json:"positions"`
+	Weight    string            `xml:"Вес" json:"weight"`
+	Volume    string            `xml:"Объем" json:"volume"`
+}
+
+type tripContactXML struct {
+	Purpose string            `xml:"Назначение" json:"purpose"`
+	Role    string            `xml:"Роль" json:"role"`
+	Name    string            `xml:"ФИО" json:"name"`
+	Phones  []contactPhoneXML `xml:"Телефоны>Телефон" json:"phones,omitempty"`
+}
+
+type contactPhoneXML struct {
+	Display string `xml:"Представление" json:"display"`
+	Number  string `xml:"Номер" json:"number"`
 }
 
 type tripXML struct {
-	ID          string     `xml:"Идентификатор" json:"id"`
-	Order       int        `xml:"Порядок" json:"order"`
-	Status      string     `xml:"Статус" json:"status"`
-	Customer    string     `xml:"Заказчик" json:"customer,omitempty"`
-	Trailer     trailerXML `xml:"Прицеп" json:"trailer,omitempty"`
-	LoadPoint   pointXML   `xml:"ПунктПогрузки" json:"load_point"`
-	UnloadPoint pointXML   `xml:"ПунктРазгрузки" json:"unload_point"`
-	PlanLoad    string     `xml:"ПланПогрузки" json:"plan_load,omitempty"`
-	PlanUnload  string     `xml:"ПланРазгрузки" json:"plan_unload,omitempty"`
-	Cargo       cargoXML   `xml:"Груз" json:"cargo"`
+	ID          string           `xml:"Идентификатор" json:"id"`
+	Order       int              `xml:"Порядок" json:"order"`
+	Status      string           `xml:"Статус" json:"status"`
+	Customer    string           `xml:"Заказчик" json:"customer,omitempty"`
+	Trailer     trailerXML       `xml:"Прицеп" json:"trailer,omitempty"`
+	LoadPoint   pointXML         `xml:"ПунктПогрузки" json:"load_point"`
+	UnloadPoint pointXML         `xml:"ПунктРазгрузки" json:"unload_point"`
+	PlanLoad    string           `xml:"ПланПогрузки" json:"plan_load,omitempty"`
+	PlanUnload  string           `xml:"ПланРазгрузки" json:"plan_unload,omitempty"`
+	Cargo       cargoXML         `xml:"Груз" json:"cargo"`
+	Contacts    []tripContactXML `xml:"Контакты>Контакт" json:"contacts,omitempty"`
 }
 
 type eventsXML struct {
@@ -150,9 +186,10 @@ type assignmentResponse struct {
 	PlanReturn   string     `json:"plan_return,omitempty"`
 	// Механик выдал ключи — своим АРМ, отдельно от диспетчера. Без этого
 	// "Начать смену" на телефоне недоступна (см. AGENTS.md).
-	KeysIssued   bool      `json:"keys_issued"`
-	KeysIssuedAt string    `json:"keys_issued_at,omitempty"`
-	Trips        []tripXML `json:"trips"`
+	KeysIssued   bool           `json:"keys_issued"`
+	KeysIssuedAt string         `json:"keys_issued_at,omitempty"`
+	Trips        []tripXML      `json:"trips"`
+	ShiftTotal   *cargoTotalXML `json:"shift_total,omitempty"`
 }
 
 type eventsRequest struct {

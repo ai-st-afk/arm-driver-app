@@ -54,7 +54,7 @@ class ArmDriverFirebaseMessagingService : FirebaseMessagingService() {
         // приходу в приложение (ON_RESUME), пуш только сигнал, что что-то
         // изменилось. Синхронный сетевой поход отсюда не нужен и рискованно
         // держать вне UI-цикла жизни экрана.
-        scope.launch { states.refresh() }
+        scope.launch { states.refresh(force = true) }
 
         val title = message.notification?.title ?: return
         val body = message.notification?.body ?: ""

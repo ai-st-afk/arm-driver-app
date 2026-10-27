@@ -1,5 +1,6 @@
 package ru.profstroyservices.armdriver.ui.settings
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -8,9 +9,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import ru.profstroyservices.armdriver.data.network.GatewayApi
 import ru.profstroyservices.armdriver.data.network.userMessage
 import ru.profstroyservices.armdriver.data.repository.PushRepository
+import ru.profstroyservices.armdriver.data.repository.AssignmentRepository
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import javax.inject.Inject
 
@@ -24,7 +27,9 @@ sealed interface BindState {
 data class ServiceUiState(
     val driverIdInput: String = "",
     val savedDriverId: String? = null,
-    val bindState: BindState = BindState.Idle
+    val bindState: BindState = BindState.Idle,
+    val clearingAssignments: Boolean = false,
+    val clearMessage: String? = null
 )
 
 // Служебный экран: привязка телефона к водителю по его GUID из 1С. Водитель
@@ -34,7 +39,8 @@ data class ServiceUiState(
 class ServiceViewModel @Inject constructor(
     private val api: GatewayApi,
     private val settings: DriverSettingsRepository,
-    private val pushRepository: PushRepository
+    private val pushRepository: PushRepository,
+    private val assignments: AssignmentRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ServiceUiState())
@@ -55,6 +61,24 @@ class ServiceViewModel @Inject constructor(
 
     fun onDriverIdInputChange(value: String) {
         _uiState.value = _uiState.value.copy(driverIdInput = value)
+    }
+
+    fun clearAssignments() {
+        if (_uiState.value.clearingAssignments) return
+        _uiState.value = _uiState.value.copy(clearingAssignments = true, clearMessage = null)
+        viewModelScope.launch {
+            try {
+                assignments.clearCache()
+                _uiState.value = _uiState.value.copy(clearMessage = "Разнарядки на телефоне очищены. События и фото сохранены.")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("ServiceViewModel", "Assignment cache clear failed", e)
+                _uiState.value = _uiState.value.copy(clearMessage = "Не удалось очистить разнарядки. Попробуйте ещё раз.")
+            } finally {
+                _uiState.value = _uiState.value.copy(clearingAssignments = false)
+            }
+        }
     }
 
     // Сразу после сохранения дёргаем gateway: сотрудник, который выдаёт
