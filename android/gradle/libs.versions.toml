@@ -18,6 +18,10 @@ datastore = "1.1.1"
 googleServices = "4.4.2"
 firebaseBom = "33.7.0"
 playServicesLocation = "21.3.0"
+camerax = "1.4.1"
+mlkitBarcodeScanning = "17.3.0"
+exifinterface = "1.3.7"
+zxingCore = "3.5.3"
 junit = "4.13.2"
 androidxTestExtJunit = "1.2.1"
 androidxTestRunner = "1.6.2"
@@ -58,6 +62,12 @@ datastore-preferences = { group = "androidx.datastore", name = "datastore-prefer
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcodeScanning" }
+exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }

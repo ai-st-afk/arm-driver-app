@@ -50,14 +50,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Оба разрешения запрашиваются один раз при первом запуске, одним системным
+// Все разрешения запрашиваются один раз при первом запуске, одним системным
 // диалогом за другим — не по месту использования (не при первом нажатии
 // кнопки шага), чтобы не удивлять водителя посреди рабочего действия.
 // Уведомления: minSdk 33, разрешение обязательно — без него пуш о
 // разнарядке на завтра (приходит вечером, приложение обычно закрыто) молча
 // не покажется. Геолокация: foreground-only, под разовую метку к событию
 // (GeoTagProvider, architecture.md §14 п.9) — отказ не блокирует работу,
-// просто событие уйдёт без неё.
+// просто событие уйдёт без неё. Камера: своя камера приложения для фото на
+// этапах и QR при привязке; если её отозвали — спросим ещё раз по месту
+// (rememberCameraAccess).
 @Composable
 private fun RequestStartupPermissions(onLocationGranted: () -> Unit) {
     val context = LocalContext.current
@@ -79,6 +81,9 @@ private fun RequestStartupPermissions(onLocationGranted: () -> Unit) {
             ) {
                 add(Manifest.permission.ACCESS_FINE_LOCATION)
                 add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+            if (!context.hasPermission(Manifest.permission.CAMERA)) {
+                add(Manifest.permission.CAMERA)
             }
         }
         if (missing.isNotEmpty()) {

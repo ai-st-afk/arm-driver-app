@@ -169,7 +169,7 @@ class RoadmapViewModel @Inject constructor(
 
     // Файл создаётся синхронно, сеть тут не участвует — можно дёргать прямо
     // из Compose перед запуском камеры.
-    fun prepareCapture() = documents.createCaptureTarget()
+    fun prepareCapture() = documents.createCaptureFile()
 
     // Разгрузился фиксируется вместе с фото: сначала фото ставится в свою
     // очередь на загрузку, потом обычное событие Разгрузился.

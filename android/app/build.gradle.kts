@@ -37,10 +37,17 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 33
         targetSdk = 35
-        versionCode = 32
-        versionName = "0.6.4"
+        versionCode = 33
+        versionName = "0.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Сканер QR (ML Kit) тянет нативную библиотеку под каждую
+        // архитектуру — x86 нужен только Intel-эмуляторам и добавлял к APK
+        // ~12 МБ. Телефоны водителей и эмулятор на Apple Silicon — ARM.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
 
         buildConfigField(
             "String",
@@ -127,6 +134,17 @@ dependencies {
     // — не зависит от google-services.json, своя Google-учётка не нужна.
     implementation(libs.play.services.location)
 
+    // Своя камера вместо системной: на системную (у каждого производителя
+    // своё приложение) не наложить подсказку «что снимать», и после неё
+    // Android может убить наш процесс вместе с недоснятым шагом.
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    // Модель внутри APK, не докачка через Play Services — привязку телефона
+    // делают и там, где нет нормального интернета.
+    implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.exifinterface)
+
     testImplementation(libs.junit)
     // runTest + виртуальное время — для тестов delay()-логики (например,
     // withQuietGrace в QueueRepository) без реального ожидания секунд.
@@ -136,4 +154,6 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.kotlinx.coroutines.test)
+    // Только чтобы сгенерировать QR в тесте и проверить, что ML Kit его читает.
+    androidTestImplementation(libs.zxing.core)
 }

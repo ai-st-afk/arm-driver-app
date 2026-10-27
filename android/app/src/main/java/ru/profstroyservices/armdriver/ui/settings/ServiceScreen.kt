@@ -19,10 +19,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import ru.profstroyservices.armdriver.ui.camera.QrScanDialog
+import ru.profstroyservices.armdriver.ui.camera.rememberCameraAccess
 
 private val ButtonHeight = 64.dp
 
@@ -32,6 +37,18 @@ fun ServiceScreen(
     viewModel: ServiceViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var scanning by remember { mutableStateOf(false) }
+    val requestCamera = rememberCameraAccess(onDenied = viewModel::onCameraDenied)
+
+    if (scanning) {
+        QrScanDialog(
+            onScanned = { raw ->
+                scanning = false
+                viewModel.onQrScanned(raw)
+            },
+            onCancel = { scanning = false }
+        )
+    }
 
     Scaffold { innerPadding ->
         Column(
@@ -54,10 +71,20 @@ fun ServiceScreen(
             // зашёл в «Настройки», нельзя.
             if (uiState.savedDriverId != null) {
                 Text(
-                    text = "Телефон уже привязан. Чтобы привязать к другому водителю, введите его GUID.",
+                    text = "Телефон уже привязан. Чтобы привязать к другому водителю, отсканируйте его QR-код или введите GUID.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+
+            Button(
+                onClick = { requestCamera { scanning = true } },
+                enabled = uiState.bindState !is BindState.Checking,
+                modifier = Modifier.fillMaxWidth().height(ButtonHeight)
+            ) {
+                Text("Сканировать QR-код", style = MaterialTheme.typography.labelLarge)
+            }
+
+            Text(text = "Или введите вручную:", style = MaterialTheme.typography.bodySmall)
 
             OutlinedTextField(
                 value = uiState.driverIdInput,
@@ -67,12 +94,12 @@ fun ServiceScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Button(
+            OutlinedButton(
                 onClick = viewModel::onBind,
-                enabled = uiState.driverIdInput.isNotBlank(),
+                enabled = uiState.driverIdInput.isNotBlank() && uiState.bindState !is BindState.Checking,
                 modifier = Modifier.fillMaxWidth().height(ButtonHeight)
             ) {
-                Text("Привязать телефон", style = MaterialTheme.typography.labelLarge)
+                Text("Привязать по введённому", style = MaterialTheme.typography.labelLarge)
             }
 
             when (val state = uiState.bindState) {

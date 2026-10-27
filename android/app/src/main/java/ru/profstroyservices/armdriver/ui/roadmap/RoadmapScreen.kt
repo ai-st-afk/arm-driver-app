@@ -2,8 +2,6 @@ package ru.profstroyservices.armdriver.ui.roadmap
 
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +66,8 @@ import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.data.repository.TripProgress
+import ru.profstroyservices.armdriver.ui.camera.GuidedPhotoDialog
+import ru.profstroyservices.armdriver.ui.camera.rememberCameraAccess
 import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.LabeledField
 import ru.profstroyservices.armdriver.ui.components.CargoDetails
@@ -111,17 +111,23 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
 
-    // Камера пишет фото в файл, подготовленный заранее (prepareCapture) —
-    // это гарантирует "только с камеры", не из галереи.
+    // Камера приложения пишет фото в файл, подготовленный заранее
+    // (prepareCapture), — галереи в этом пути нет вообще.
     var captureTarget by remember { mutableStateOf<Pair<TripDto, File>?>(null) }
     var noPhotoTarget by remember { mutableStateOf<TripDto?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        val target = captureTarget
-        captureTarget = null
-        if (success && target != null) {
-            viewModel.onPhotoCaptured(target.first, target.second)
-        } else if (target != null) {
-            noPhotoTarget = target.first
+    var cameraDenied by remember { mutableStateOf(false) }
+    var cameraRequestTrip by remember { mutableStateOf<TripDto?>(null) }
+    val requestCamera = rememberCameraAccess(onDenied = {
+        cameraDenied = true
+        noPhotoTarget = cameraRequestTrip
+        cameraRequestTrip = null
+    })
+    fun openCamera(trip: TripDto) {
+        cameraRequestTrip = trip
+        requestCamera {
+            cameraRequestTrip = null
+            cameraDenied = false
+            captureTarget = trip to viewModel.prepareCapture()
         }
     }
 
@@ -176,9 +182,7 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
                     onToggle = { tripId -> expandedTripId = if (expandedTripId == tripId) null else tripId },
                     onAction = { trip, type ->
                         if (type == EventTypes.RAZGRUZILSYA) {
-                            val (file, uri) = viewModel.prepareCapture()
-                            captureTarget = trip to file
-                            cameraLauncher.launch(uri)
+                            openCamera(trip)
                         } else {
                             viewModel.onTripAction(trip, type)
                         }
@@ -207,13 +211,29 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
         )
     }
 
+    captureTarget?.let { (trip, file) ->
+        GuidedPhotoDialog(
+            prompt = "Сфотографируйте документ",
+            hint = "Весь лист в кадре, подпись и печать должны читаться",
+            target = file,
+            onCaptured = {
+                captureTarget = null
+                viewModel.onPhotoCaptured(trip, file)
+            },
+            onCancel = {
+                captureTarget = null
+                file.delete()
+                noPhotoTarget = trip
+            }
+        )
+    }
+
     noPhotoTarget?.let { trip ->
         NoPhotoDialog(
+            cameraDenied = cameraDenied,
             onRetryPhoto = {
                 noPhotoTarget = null
-                val (file, uri) = viewModel.prepareCapture()
-                captureTarget = trip to file
-                cameraLauncher.launch(uri)
+                openCamera(trip)
             },
             onConfirmWithoutPhoto = { reason ->
                 viewModel.onUnloadWithoutPhoto(trip, reason)
@@ -299,6 +319,7 @@ private fun RoadmapList(
 // накладной было объяснено.
 @Composable
 private fun NoPhotoDialog(
+    cameraDenied: Boolean,
     onRetryPhoto: () -> Unit,
     onConfirmWithoutPhoto: (String) -> Unit,
     onDismiss: () -> Unit
@@ -310,6 +331,13 @@ private fun NoPhotoDialog(
         title = { Text("Фото не сделано") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (cameraDenied) {
+                    Text(
+                        text = "Нет доступа к камере. Разрешите её в настройках телефона.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 Text(
                     text = "Можно переснять или закрыть разгрузку без фото, указав причину.",
                     style = MaterialTheme.typography.bodyMedium

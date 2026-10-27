@@ -32,6 +32,16 @@ data class ServiceUiState(
     val clearMessage: String? = null
 )
 
+private val GuidPattern =
+    Regex("(?<![0-9a-fA-F])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9a-fA-F])")
+
+// Формат QR с 1С ещё не согласован, поэтому GUID берём, даже если вокруг
+// него есть текст, — но только если он там один: из двух GUID (например,
+// водитель и разнарядка) угадывать, какой из них водитель, нельзя. Регистр
+// приводим к нижнему — так GUID пишет сама 1С и так он лежит на шлюзе.
+fun extractDriverGuid(raw: String): String? =
+    GuidPattern.findAll(raw).map { it.value.lowercase() }.distinct().singleOrNull()
+
 // Служебный экран: привязка телефона к водителю по его GUID из 1С. Водитель
 // сюда не ходит — телефон ему выдают уже настроенным. GUID сам по себе
 // служит пропуском: не зная его, привязать телефон нельзя.
@@ -81,11 +91,31 @@ class ServiceViewModel @Inject constructor(
         }
     }
 
+    fun onBind() = bind(_uiState.value.driverIdInput.trim())
+
+    // GUID из QR в поле ввода не кладём — его не нужно видеть на экране,
+    // как и уже привязанный (см. init).
+    fun onQrScanned(raw: String) {
+        val driverId = extractDriverGuid(raw)
+        if (driverId == null) {
+            _uiState.value = _uiState.value.copy(
+                bindState = BindState.Error("В этом QR-коде нет идентификатора водителя. Нужен QR из карточки водителя в 1С.")
+            )
+            return
+        }
+        bind(driverId)
+    }
+
+    fun onCameraDenied() {
+        _uiState.value = _uiState.value.copy(
+            bindState = BindState.Error("Нет доступа к камере. Разрешите её в настройках телефона или введите идентификатор вручную.")
+        )
+    }
+
     // Сразу после сохранения дёргаем gateway: сотрудник, который выдаёт
     // телефон, должен увидеть ФИО привязанного водителя и убедиться, что
     // GUID не набран с опечаткой.
-    fun onBind() {
-        val driverId = _uiState.value.driverIdInput.trim()
+    private fun bind(driverId: String) {
         if (driverId.isEmpty()) return
 
         _uiState.value = _uiState.value.copy(bindState = BindState.Checking)

@@ -2,9 +2,7 @@ package ru.profstroyservices.armdriver.data.repository
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Log
-import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -40,14 +38,9 @@ class DocumentRepository @Inject constructor(
     private val photosDir: File
         get() = File(context.filesDir, "photos").apply { mkdirs() }
 
-    // Файл + content:// Uri для ACTION_IMAGE_CAPTURE — камера пишет фото
-    // прямо сюда, без прохода через галерею (инвариант "только с камеры",
-    // озвученный автором).
-    fun createCaptureTarget(): Pair<File, android.net.Uri> {
-        val file = File(photosDir, "${UUID.randomUUID()}.jpg")
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        return file to uri
-    }
+    // Камера приложения пишет снимок прямо сюда — галереи в этом пути нет
+    // вообще (инвариант «только с камеры», озвученный автором).
+    fun createCaptureFile(): File = File(photosDir, "${UUID.randomUUID()}.jpg")
 
     suspend fun enqueue(file: File, driverId: String, assignmentId: String, tripId: String) {
         compressInPlace(file)
@@ -111,21 +104,7 @@ class DocumentRepository @Inject constructor(
     // 4000×3000 и больше 5 МБ) — для читаемой подписи на накладной
     // это избыточно.
     private suspend fun compressInPlace(file: File) = withContext(Dispatchers.IO) {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext
-
-        var sampleSize = 1
-        while (bounds.outWidth / sampleSize > MAX_PHOTO_DIMENSION ||
-            bounds.outHeight / sampleSize > MAX_PHOTO_DIMENSION
-        ) {
-            sampleSize *= 2
-        }
-
-        val bitmap = BitmapFactory.decodeFile(
-            file.absolutePath,
-            BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        ) ?: return@withContext
+        val bitmap = decodeUpright(file, MAX_PHOTO_DIMENSION) ?: return@withContext
 
         var quality = 90
         var bytes: ByteArray

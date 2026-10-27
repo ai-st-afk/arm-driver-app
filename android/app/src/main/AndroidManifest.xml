@@ -12,6 +12,9 @@
          (см. GeoTagProvider). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Своя камера в приложении: фото на этапах рейса и QR водителя при
+         привязке. Запрашивается при первом запуске вместе с остальными. -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <application
         android:name=".ArmDriverApp"
@@ -52,18 +55,6 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="assignments" />
-
-        <!-- Для ACTION_IMAGE_CAPTURE: даёт камере content:// Uri вместо
-             прямого file:// пути (обязательно с Android 7+). -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
     </application>
 
 </manifest>

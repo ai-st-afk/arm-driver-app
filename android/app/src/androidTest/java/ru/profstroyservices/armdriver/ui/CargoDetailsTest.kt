@@ -1,5 +1,6 @@
 package ru.profstroyservices.armdriver.ui
 
+import android.Manifest
 import android.graphics.Bitmap
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
@@ -15,6 +16,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import ru.profstroyservices.armdriver.MainActivity
@@ -26,6 +28,20 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class CargoDetailsTest {
+    // MainActivity при старте запрашивает разрешения — без выдачи заранее
+    // системный диалог перекрывает экран, и текст в тесте не находится.
+    @Before
+    fun grantPermissions() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val pkg = instrumentation.targetContext.packageName
+        listOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ).forEach { instrumentation.uiAutomation.grantRuntimePermission(pkg, it) }
+    }
+
     @Test
     fun longCargoListCanExpandAndCollapseInsideScrollableScreen() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
