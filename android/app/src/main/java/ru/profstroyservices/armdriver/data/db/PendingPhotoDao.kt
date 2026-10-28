@@ -17,6 +17,9 @@ interface PendingPhotoDao {
     @Query("SELECT COUNT(*) FROM pending_photos WHERE uploaded = 0")
     fun observePendingCount(): Flow<Int>
 
+    @Query("SELECT filePath FROM pending_photos")
+    suspend fun getAllFilePaths(): List<String>
+
     @Query("DELETE FROM pending_photos WHERE id = :id")
     suspend fun deleteById(id: String)
 

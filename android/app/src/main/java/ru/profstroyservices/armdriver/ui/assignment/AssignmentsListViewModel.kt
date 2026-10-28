@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import ru.profstroyservices.armdriver.data.network.userMessage
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.AssignmentStateRepository
@@ -34,7 +35,10 @@ sealed interface AssignmentsListUiState {
     data object Loading : AssignmentsListUiState
     data class Loaded(
         val assignments: List<AssignmentSummary>,
-        val current: AssignmentState?
+        val current: AssignmentState?,
+        // Последнее обновление не удалось (обычно нет сети). Пустой список
+        // при этом значит «не знаем», а не «разнарядок нет».
+        val refreshError: String? = null
     ) : AssignmentsListUiState
 }
 
@@ -44,18 +48,19 @@ class AssignmentsListViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val refreshing = MutableStateFlow(true)
+    private val refreshError = MutableStateFlow<String?>(null)
 
     val uiState: StateFlow<AssignmentsListUiState> =
-        combine(states.observeStates(), refreshing) { all, refreshing ->
+        combine(states.observeStates(), refreshing, refreshError) { all, refreshing, error ->
             // Пока первый запрос не вернулся и кэш пуст — это загрузка, а не
             // «разнарядок нет».
             if (all.isEmpty() && refreshing) return@combine AssignmentsListUiState.Loading
-            assignmentsListState(all)
+            assignmentsListState(all).copy(refreshError = error)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AssignmentsListUiState.Loading)
 
     fun refresh() {
         viewModelScope.launch {
-            states.refresh()
+            refreshError.value = states.refresh().exceptionOrNull()?.userMessage()
             refreshing.value = false
         }
     }

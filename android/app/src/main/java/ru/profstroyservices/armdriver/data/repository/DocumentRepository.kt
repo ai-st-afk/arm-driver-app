@@ -28,6 +28,7 @@ import javax.inject.Singleton
 // достаточно 1-2 МБ", жёсткий лимит на их стороне — 5 МБ.
 private const val MAX_PHOTO_BYTES = 1_500_000L
 private const val MAX_PHOTO_DIMENSION = 2000
+private const val ORPHAN_MIN_AGE_MILLIS = 24 * 60 * 60 * 1000L
 
 @Singleton
 class DocumentRepository @Inject constructor(
@@ -85,6 +86,10 @@ class DocumentRepository @Inject constructor(
                 )
             }.onSuccess {
                 dao.deleteById(photo.id)
+                // Шлюз отвечает успехом только после того, как 1С приняла фото,
+                // и сам держит копию ещё 7 дней (DOCUMENT_DELIVERED_RETENTION_DAYS).
+                // Раньше файл оставался на телефоне навсегда — 1–1,5 МБ на снимок.
+                file.delete()
             }.onFailure { error ->
                 if (error is CancellationException) throw error
                 currentCoroutineContext().ensureActive()
@@ -97,6 +102,19 @@ class DocumentRepository @Inject constructor(
                 dao.markRejected(photo.id, error.userMessage())
             }
         }
+        deleteOrphanFiles()
+    }
+
+    // Файлы, на которые очередь не ссылается: отправленные до того, как их
+    // начали удалять сразу, и брошенные (приложение закрыли посреди съёмки).
+    // Свежие не трогаем — снимок, который водитель ещё смотрит в превью,
+    // в очередь пока не попал.
+    private suspend fun deleteOrphanFiles() = withContext(Dispatchers.IO) {
+        val referenced = dao.getAllFilePaths().toSet()
+        val cutoff = System.currentTimeMillis() - ORPHAN_MIN_AGE_MILLIS
+        photosDir.listFiles()
+            ?.filter { it.absolutePath !in referenced && it.lastModified() < cutoff }
+            ?.forEach { it.delete() }
     }
 
     // Даунсемплинг по разрешению + подбор качества JPEG, пока файл не

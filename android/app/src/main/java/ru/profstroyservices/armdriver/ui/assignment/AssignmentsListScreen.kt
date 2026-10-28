@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,6 +13,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,6 +71,14 @@ fun AssignmentsGate(
                 }
                 when {
                     target != null -> LaunchedEffect(target) { onOpen(target) }
+                    // Показывать нечего, и обновиться не вышло — честно
+                    // говорим «не загрузилось», а не «разнарядок нет».
+                    state.refreshError != null &&
+                        (mode == GateMode.TRIPS || state.assignments.isEmpty()) -> RefreshFailedState(
+                        reason = state.refreshError,
+                        onRetry = viewModel::refresh,
+                        modifier = Modifier.padding(innerPadding)
+                    )
                     mode == GateMode.TRIPS -> EmptyState(
                         text = "Нет активной разнарядки.\nРейсы появятся здесь, когда диспетчер пришлёт новую.",
                         modifier = Modifier.padding(innerPadding)
@@ -84,6 +94,25 @@ fun AssignmentsGate(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RefreshFailedState(reason: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Не удалось загрузить разнарядки",
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center
+        )
+        Text(text = reason, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+        OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth().height(64.dp)) {
+            Text("Повторить", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
