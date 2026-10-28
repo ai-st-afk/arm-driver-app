@@ -630,9 +630,10 @@ func (s *Server) forwardPhotoToOneC(
 	req.Header.Set("X-Photo-Id", photoID)
 	req.Header.Set("X-Assignment-Id", assignmentID)
 	req.Header.Set("X-Trip-Id", tripID)
-	// Имена заголовков — наше предложение 1С (architecture.md §14 п.8), 1С
-	// их пока не подтвердила. Лишние заголовки 1С не мешают: без их
-	// поддержки фото принимается как раньше.
+	// Согласовано с 1С 2026-10-28 (architecture.md §14 п.8): этап 1С берёт
+	// по типу события X-Event-Id, в том числе если событие придёт позже
+	// фото. Фото без этих заголовков (старые версии приложения) 1С
+	// принимает как раньше.
 	if eventID != "" {
 		req.Header.Set("X-Event-Id", eventID)
 	}
