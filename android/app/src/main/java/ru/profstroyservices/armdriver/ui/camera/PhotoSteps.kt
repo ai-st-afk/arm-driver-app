@@ -13,7 +13,9 @@ data class PhotoStep(
 )
 
 private val TruckRear = PhotoStep(PhotoKind.TRUCK_REAR, "Сфотографируйте грузовик сзади", "Кузов и госномер целиком в кадре")
-private val TruckSide = PhotoStep(PhotoKind.TRUCK_SIDE, "Сфотографируйте грузовик сбоку", "Машина целиком, вместе с грузом")
+// Подсказки «сбоку» разные: после разгрузки груза в кузове уже нет.
+private val TruckSideLoaded = PhotoStep(PhotoKind.TRUCK_SIDE, "Сфотографируйте грузовик сбоку", "Машина целиком, вместе с грузом")
+private val TruckSideUnloaded = PhotoStep(PhotoKind.TRUCK_SIDE, "Сфотографируйте грузовик сбоку", "Машина целиком в кадре")
 private val Document = PhotoStep(
     PhotoKind.DOCUMENT,
     "Сфотографируйте документ",
@@ -23,8 +25,8 @@ private val Document = PhotoStep(
 
 // Обязательные снимки этапа (решение автора 2026-10-27). null — этап без фото.
 fun photoStepsFor(eventType: String): List<PhotoStep>? = when (eventType) {
-    EventTypes.ZAGRUZILSYA_V_PUT -> listOf(TruckRear, TruckSide)
-    EventTypes.RAZGRUZILSYA -> listOf(TruckRear, TruckSide, Document)
+    EventTypes.ZAGRUZILSYA_V_PUT -> listOf(TruckRear, TruckSideLoaded)
+    EventTypes.RAZGRUZILSYA -> listOf(TruckRear, TruckSideUnloaded, Document)
     else -> null
 }
 

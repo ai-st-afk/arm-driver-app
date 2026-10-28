@@ -2,6 +2,7 @@ package ru.profstroyservices.armdriver.ui.camera
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.profstroyservices.armdriver.data.repository.CapturedPhoto
 import ru.profstroyservices.armdriver.data.repository.EventTypes
@@ -23,6 +24,14 @@ class PhotoStepsTest {
             listOf(PhotoKind.TRUCK_REAR, PhotoKind.TRUCK_SIDE, PhotoKind.DOCUMENT),
             photoStepsFor(EventTypes.RAZGRUZILSYA)?.map { it.kind }
         )
+    }
+
+    // После разгрузки груза в кузове нет — подсказка не должна просить
+    // снять его «вместе с грузом».
+    @Test
+    fun `unloading hints do not ask for cargo`() {
+        val hints = checkNotNull(photoStepsFor(EventTypes.RAZGRUZILSYA)).map { it.hint.lowercase() }
+        assertTrue(hints.none { "груз" in it.replace("грузовик", "") })
     }
 
     @Test
