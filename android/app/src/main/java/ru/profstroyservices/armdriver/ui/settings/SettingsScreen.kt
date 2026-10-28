@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import ru.profstroyservices.armdriver.BuildConfig
 import ru.profstroyservices.armdriver.ui.components.LabeledField
 
@@ -36,13 +38,10 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     val context = LocalContext.current
     var showService by remember { mutableStateOf(false) }
 
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.retryIfMissing() }
+
     if (showService) {
-        ServiceScreen(
-            onClose = {
-                showService = false
-                viewModel.load()
-            }
-        )
+        ServiceScreen(onClose = { showService = false })
         return
     }
 
@@ -57,7 +56,10 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
         ) {
             Text(text = "Настройки", style = MaterialTheme.typography.headlineSmall)
 
-            uiState.driverName?.let { LabeledField(label = "Водитель", value = it) }
+            if (uiState.configured) {
+                LabeledField(label = "Водитель", value = uiState.driverName ?: "—")
+                uiState.driverNameNote?.let { Text(text = it, style = MaterialTheme.typography.bodySmall) }
+            }
             uiState.vehicle?.let { LabeledField(label = "Машина", value = it) }
 
             if (BuildConfig.DISPATCHER_PHONE.isNotBlank()) {

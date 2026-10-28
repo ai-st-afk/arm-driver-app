@@ -4,30 +4,24 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
-import ru.profstroyservices.armdriver.data.network.GatewayApi
-import ru.profstroyservices.armdriver.data.network.userMessage
 import ru.profstroyservices.armdriver.data.repository.PushRepository
 import ru.profstroyservices.armdriver.data.repository.AssignmentRepository
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import javax.inject.Inject
 
-sealed interface BindState {
-    data object Idle : BindState
-    data object Checking : BindState
-    data class Bound(val driverName: String?, val assignments: Int) : BindState
-    data class Error(val message: String) : BindState
-}
-
 data class ServiceUiState(
     val driverIdInput: String = "",
     val savedDriverId: String? = null,
-    val bindState: BindState = BindState.Idle,
+    val error: String? = null,
     val clearingAssignments: Boolean = false,
     val clearMessage: String? = null
 )
@@ -35,19 +29,28 @@ data class ServiceUiState(
 private val GuidPattern =
     Regex("(?<![0-9a-fA-F])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9a-fA-F])")
 
-// Формат QR с 1С ещё не согласован, поэтому GUID берём, даже если вокруг
-// него есть текст, — но только если он там один: из двух GUID (например,
-// водитель и разнарядка) угадывать, какой из них водитель, нельзя. Регистр
-// приводим к нижнему — так GUID пишет сама 1С и так он лежит на шлюзе.
-fun extractDriverGuid(raw: String): String? =
-    GuidPattern.findAll(raw).map { it.value.lowercase() }.distinct().singleOrNull()
+data class DriverQr(val driverId: String, val name: String?)
+
+// Формат QR предложен 1С (architecture.md §14 п.10): GUID водителя и ФИО
+// отдельными строками (или через «;»), порядок не важен. GUID — только если
+// он в QR один: из двух (водитель и разнарядка) угадывать нельзя. Регистр
+// GUID — нижний, так его пишет 1С и так он лежит на шлюзе. ФИО — если
+// кроме GUID ровно одна строка с буквами; QR из одного GUID тоже подходит,
+// ФИО тогда подтянется со шлюза.
+fun parseDriverQr(raw: String): DriverQr? {
+    val guid = GuidPattern.findAll(raw).map { it.value.lowercase() }.distinct().singleOrNull() ?: return null
+    val others = raw.split('\n', '\r', ';')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !GuidPattern.containsMatchIn(it) }
+    val name = others.singleOrNull()?.takeIf { part -> part.any { it.isLetter() } }
+    return DriverQr(guid, name)
+}
 
 // Служебный экран: привязка телефона к водителю по его GUID из 1С. Водитель
 // сюда не ходит — телефон ему выдают уже настроенным. GUID сам по себе
 // служит пропуском: не зная его, привязать телефон нельзя.
 @HiltViewModel
 class ServiceViewModel @Inject constructor(
-    private val api: GatewayApi,
     private val settings: DriverSettingsRepository,
     private val pushRepository: PushRepository,
     private val assignments: AssignmentRepository
@@ -55,6 +58,10 @@ class ServiceViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ServiceUiState())
     val uiState: StateFlow<ServiceUiState> = _uiState.asStateFlow()
+
+    // Привязка сохранена — экран закрывается, открываются настройки с ФИО.
+    private val _bound = Channel<Unit>(Channel.BUFFERED)
+    val bound: Flow<Unit> = _bound.receiveAsFlow()
 
     init {
         viewModelScope.launch {
@@ -91,56 +98,43 @@ class ServiceViewModel @Inject constructor(
         }
     }
 
-    fun onBind() = bind(_uiState.value.driverIdInput.trim())
+    fun onBind() {
+        val driverId = _uiState.value.driverIdInput.trim()
+        if (driverId.isNotEmpty()) bind(driverId, name = null)
+    }
 
     // GUID из QR в поле ввода не кладём — его не нужно видеть на экране,
     // как и уже привязанный (см. init).
     fun onQrScanned(raw: String) {
-        val driverId = extractDriverGuid(raw)
-        if (driverId == null) {
+        val qr = parseDriverQr(raw)
+        if (qr == null) {
             _uiState.value = _uiState.value.copy(
-                bindState = BindState.Error("В этом QR-коде нет идентификатора водителя. Нужен QR из карточки водителя в 1С.")
+                error = "В этом QR-коде нет идентификатора водителя. Нужен QR из карточки водителя в 1С."
             )
             return
         }
-        bind(driverId)
+        bind(qr.driverId, qr.name)
     }
 
     fun onCameraDenied() {
         _uiState.value = _uiState.value.copy(
-            bindState = BindState.Error("Нет доступа к камере. Разрешите её в настройках телефона или введите идентификатор вручную.")
+            error = "Нет доступа к камере. Разрешите её в настройках телефона или введите идентификатор вручную."
         )
     }
 
-    // Сразу после сохранения дёргаем gateway: сотрудник, который выдаёт
-    // телефон, должен увидеть ФИО привязанного водителя и убедиться, что
-    // GUID не набран с опечаткой.
-    private fun bind(driverId: String) {
-        if (driverId.isEmpty()) return
-
-        _uiState.value = _uiState.value.copy(bindState = BindState.Checking)
+    // Привязка не ждёт сервера: сразу в настройки, ФИО там — из QR или
+    // подтянется со шлюза (SettingsViewModel). Проверять, что GUID без
+    // опечатки, теперь видно там же: сервер не знает водителя — это
+    // написано рядом с ФИО.
+    private fun bind(driverId: String, name: String?) {
         viewModelScope.launch {
-            settings.setDriverId(driverId)
-            _uiState.value = _uiState.value.copy(savedDriverId = driverId)
-            runCatching { api.getAssignments(driverId) }
-                .onSuccess { response ->
-                    val name = response.assignments.firstOrNull()?.driver?.name
-                    _uiState.value = _uiState.value.copy(
-                        bindState = BindState.Bound(
-                            driverName = name,
-                            assignments = response.assignments.size
-                        )
-                    )
-                    // До привязки токен девайса некуда было слать (driver_id
-                    // не известен) — теперь известен, шлём не дожидаясь
-                    // следующей ротации токена (onNewToken).
-                    pushRepository.registerCurrentToken()
-                }
-                .onFailure { error ->
-                    _uiState.value = _uiState.value.copy(
-                        bindState = BindState.Error(error.userMessage())
-                    )
-                }
+            settings.bind(driverId, name)
+            _uiState.value = _uiState.value.copy(savedDriverId = driverId, driverIdInput = "", error = null)
+            _bound.send(Unit)
+            // До привязки токен девайса некуда было слать (driver_id не
+            // известен) — шлём сразу, не дожидаясь ротации токена. ViewModel
+            // живёт дольше закрытого экрана (её владелец — вкладка/Activity).
+            pushRepository.registerCurrentToken()
         }
     }
 }

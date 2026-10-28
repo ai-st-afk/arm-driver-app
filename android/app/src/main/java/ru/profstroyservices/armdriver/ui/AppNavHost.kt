@@ -7,8 +7,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -20,11 +24,15 @@ import ru.profstroyservices.armdriver.ui.settings.NotConfiguredScreen
 // выдаёт, а не водитель.
 @Composable
 fun AppNavHost(viewModel: AppNavViewModel = hiltViewModel()) {
+    // Телефон только что привязали — открываем настройки с ФИО водителя,
+    // чтобы тот, кто выдаёт телефон, сразу видел, к кому он привязан.
+    var justBound by rememberSaveable { mutableStateOf(false) }
     when (val state = viewModel.state.collectAsState().value) {
         is AppNavUiState.Loading -> LoadingGate()
         is AppNavUiState.Ready -> if (state.hasDriverId) {
-            MainScaffold()
+            MainScaffold(startOnSettings = justBound)
         } else {
+            SideEffect { justBound = true }
             NotConfiguredScreen()
         }
     }

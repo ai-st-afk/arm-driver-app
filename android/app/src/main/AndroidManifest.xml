@@ -34,6 +34,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Камера и сканер QR — отдельное окно, не диалог: на Xiaomi
+             диалог уходил под системные кнопки (см. CameraActivity). Портрет —
+             чтобы поворот не пересоздавал экран посреди съёмки. -->
+        <activity
+            android:name=".ui.camera.CameraActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.ArmDriver" />
+
         <service
             android:name=".push.ArmDriverFirebaseMessagingService"
             android:exported="false">

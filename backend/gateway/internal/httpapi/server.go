@@ -58,6 +58,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/mobile/assignments/{id}", s.assignmentByID)
 	mux.HandleFunc("POST /api/mobile/events", s.receiveEvents)
 	mux.HandleFunc("POST /api/mobile/documents", s.uploadDocument)
+	mux.HandleFunc("GET /api/mobile/drivers/{id}", s.driverByID)
 	return s.recover(s.requestLog(mux))
 }
 
@@ -328,6 +329,43 @@ func (s *Server) listAssignments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, assignmentsListResponse{Assignments: assignments})
 }
 
+// ФИО водителя по GUID — чтобы при привязке телефона сразу видеть, к кому
+// он привязан, а не ждать первой разнарядки в окне выдачи. Справочника
+// водителей у шлюза нет (источник — 1С), поэтому имя берём из последней
+// пришедшей от 1С разнарядки этого водителя за весь срок хранения.
+func (s *Server) driverByID(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizedMobile(r) {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "неверный X-Auth-Token")
+		return
+	}
+	id := r.PathValue("id")
+	metas, err := s.store.ListAssignmentsForDriver(id, time.Time{})
+	if err != nil {
+		s.logger.ErrorContext(r.Context(), "driver lookup failed", "error", err, "driver", id)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось прочитать разнарядки водителя")
+		return
+	}
+	for _, meta := range metas {
+		// Разнарядку, переданную другому, не берём: в ней уже чужое ФИО.
+		if meta.DriverID != id {
+			continue
+		}
+		raw, _, err := s.store.GetAssignment(meta.ID)
+		if err != nil {
+			continue
+		}
+		var assignment assignmentXML
+		if xml.Unmarshal(raw, &assignment) != nil {
+			continue
+		}
+		if name := strings.TrimSpace(assignment.Driver.Name); name != "" {
+			writeJSON(w, http.StatusOK, driverResponse{ID: id, Name: name})
+			return
+		}
+	}
+	writeJSONError(w, http.StatusNotFound, "driver_unknown", "водитель пока неизвестен: от 1С не приходило ни одной его разнарядки")
+}
+
 func (s *Server) assignmentByID(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizedMobile(r) {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "неверный X-Auth-Token")
@@ -494,6 +532,19 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "validation_error", "обязательны photo_id, driver_id и trip_id")
 		return
 	}
+	// Необязательные: что на снимке и к какому событию он относится.
+	// Старые версии приложения их не шлют. Значения уходят в заголовки
+	// запроса к 1С, поэтому пропускаем только ожидаемый формат.
+	eventID := r.FormValue("event_id")
+	kind := r.FormValue("kind")
+	if eventID != "" && !guidPattern.MatchString(eventID) {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "event_id должен быть GUID")
+		return
+	}
+	if kind != "" && !photoKindPattern.MatchString(kind) {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "kind: только латиница в нижнем регистре и _")
+		return
+	}
 
 	file, header, err := r.FormFile("photo")
 	if err != nil {
@@ -532,14 +583,15 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось сохранить фото")
 		return
 	}
-	s.logger.InfoContext(r.Context(), "document accepted", "id", meta.ID, "trip", tripID, "driver", driverID, "bytes", len(data))
+	s.logger.InfoContext(r.Context(), "document accepted", "id", meta.ID, "trip", tripID, "driver", driverID,
+		"event", eventID, "kind", kind, "bytes", len(data))
 
 	if s.cfg.OneCBaseURL == "" {
 		writeJSONError(w, http.StatusServiceUnavailable, "one_c_not_configured", "ONE_C_BASE_URL не настроен, фото не отправлено в 1С")
 		return
 	}
 
-	result, err := s.forwardPhotoToOneC(r.Context(), photoID, assignmentID, tripID, contentType, data)
+	result, err := s.forwardPhotoToOneC(r.Context(), photoID, assignmentID, tripID, eventID, kind, contentType, data)
 	if err != nil {
 		s.logger.ErrorContext(r.Context(), "1c photo forwarding failed", "error", err, "id", photoID)
 		writeJSONError(w, http.StatusBadGateway, "one_c_unavailable", "не удалось отправить фото в 1С")
@@ -567,7 +619,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 // заголовках, идемпотентность по X-Photo-Id. См. docs/backend-api.md.
 func (s *Server) forwardPhotoToOneC(
 	ctx context.Context,
-	photoID, assignmentID, tripID, contentType string,
+	photoID, assignmentID, tripID, eventID, kind, contentType string,
 	data []byte,
 ) (photoResultXML, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.OneCPhotoURL, bytes.NewReader(data))
@@ -578,6 +630,15 @@ func (s *Server) forwardPhotoToOneC(
 	req.Header.Set("X-Photo-Id", photoID)
 	req.Header.Set("X-Assignment-Id", assignmentID)
 	req.Header.Set("X-Trip-Id", tripID)
+	// Имена заголовков — наше предложение 1С (architecture.md §14 п.8), 1С
+	// их пока не подтвердила. Лишние заголовки 1С не мешают: без их
+	// поддержки фото принимается как раньше.
+	if eventID != "" {
+		req.Header.Set("X-Event-Id", eventID)
+	}
+	if kind != "" {
+		req.Header.Set("X-Photo-Kind", kind)
+	}
 	if s.cfg.OneCToken != "" {
 		req.Header.Set("X-Auth-Token", s.cfg.OneCToken)
 	}

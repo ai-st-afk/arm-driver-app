@@ -1,5 +1,6 @@
 package ru.profstroyservices.armdriver.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
@@ -17,16 +17,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import ru.profstroyservices.armdriver.ui.camera.QrScanDialog
+import ru.profstroyservices.armdriver.ui.camera.ScanDriverQr
 import ru.profstroyservices.armdriver.ui.camera.rememberCameraAccess
 
 private val ButtonHeight = 64.dp
@@ -37,18 +35,13 @@ fun ServiceScreen(
     viewModel: ServiceViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var scanning by remember { mutableStateOf(false) }
+    val currentOnClose by rememberUpdatedState(onClose)
+    val scanLauncher = rememberLauncherForActivityResult(ScanDriverQr()) { raw ->
+        raw?.let(viewModel::onQrScanned)
+    }
     val requestCamera = rememberCameraAccess(onDenied = viewModel::onCameraDenied)
 
-    if (scanning) {
-        QrScanDialog(
-            onScanned = { raw ->
-                scanning = false
-                viewModel.onQrScanned(raw)
-            },
-            onCancel = { scanning = false }
-        )
-    }
+    LaunchedEffect(viewModel) { viewModel.bound.collect { currentOnClose() } }
 
     Scaffold { innerPadding ->
         Column(
@@ -77,8 +70,7 @@ fun ServiceScreen(
             }
 
             Button(
-                onClick = { requestCamera { scanning = true } },
-                enabled = uiState.bindState !is BindState.Checking,
+                onClick = { requestCamera { scanLauncher.launch(Unit) } },
                 modifier = Modifier.fillMaxWidth().height(ButtonHeight)
             ) {
                 Text("Сканировать QR-код", style = MaterialTheme.typography.labelLarge)
@@ -96,38 +88,13 @@ fun ServiceScreen(
 
             OutlinedButton(
                 onClick = viewModel::onBind,
-                enabled = uiState.driverIdInput.isNotBlank() && uiState.bindState !is BindState.Checking,
+                enabled = uiState.driverIdInput.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().height(ButtonHeight)
             ) {
                 Text("Привязать по введённому", style = MaterialTheme.typography.labelLarge)
             }
 
-            when (val state = uiState.bindState) {
-                is BindState.Idle -> Unit
-
-                is BindState.Checking -> CircularProgressIndicator()
-
-                is BindState.Bound -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = state.driverName ?: "Телефон привязан",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = if (state.assignments > 0) {
-                            "Разнарядок доступно: ${state.assignments}"
-                        } else {
-                            "Разнарядок сейчас нет — это нормально, если их ещё не выпустили"
-                        },
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-
-                is BindState.Error -> Text(
-                    text = state.message,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
+            uiState.error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
 
             Text(
                 "Очистка убирает загруженные разнарядки только с этого телефона. " +

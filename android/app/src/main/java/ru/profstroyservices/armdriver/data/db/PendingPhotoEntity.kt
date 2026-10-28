@@ -21,5 +21,9 @@ data class PendingPhotoEntity(
     val lastError: String? = null,
     // id — UUID, по нему «последнее» не определить. Нужно для
     // observeLastRejected — показывать причину самой свежей попытки.
-    val enqueuedAt: Long = System.currentTimeMillis()
+    val enqueuedAt: Long = System.currentTimeMillis(),
+    // GUID события этапа (ЗагрузилсяВПуть/Разгрузился), к которому снимок,
+    // и что на нём (PhotoKind.code). null — фото из версий до 0.8.0.
+    val eventId: String? = null,
+    val kind: String? = null
 )

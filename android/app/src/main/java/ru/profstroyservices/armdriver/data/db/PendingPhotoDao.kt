@@ -20,6 +20,9 @@ interface PendingPhotoDao {
     @Query("SELECT filePath FROM pending_photos")
     suspend fun getAllFilePaths(): List<String>
 
+    @Query("SELECT * FROM pending_photos WHERE eventId = :eventId")
+    suspend fun getByEvent(eventId: String): List<PendingPhotoEntity>
+
     @Query("DELETE FROM pending_photos WHERE id = :id")
     suspend fun deleteById(id: String)
 

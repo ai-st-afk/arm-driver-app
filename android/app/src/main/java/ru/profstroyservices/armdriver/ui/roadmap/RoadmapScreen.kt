@@ -66,7 +66,16 @@ import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.data.repository.TripProgress
-import ru.profstroyservices.armdriver.ui.camera.GuidedPhotoDialog
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
+import ru.profstroyservices.armdriver.data.repository.CapturedPhoto
+import ru.profstroyservices.armdriver.data.repository.PhotoKind
+import ru.profstroyservices.armdriver.ui.camera.CapturePhotos
+import ru.profstroyservices.armdriver.ui.camera.PhotoCaptureRequest
+import ru.profstroyservices.armdriver.ui.camera.PhotoStep
+import ru.profstroyservices.armdriver.ui.camera.nextMissingStep
+import ru.profstroyservices.armdriver.ui.camera.photoStepsFor
 import ru.profstroyservices.armdriver.ui.camera.rememberCameraAccess
 import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.LabeledField
@@ -92,9 +101,9 @@ private const val FeedbackAutoDismissMillis = 5_000L
 
 private val actionLabels = mapOf(
     EventTypes.PRIBYL_NA_POGRUZKU to "Прибыл на погрузку",
-    EventTypes.ZAGRUZILSYA_V_PUT to "Загрузился, в пути",
+    EventTypes.ZAGRUZILSYA_V_PUT to "Загрузился, в пути (фото)",
     EventTypes.PRIBYL_NA_RAZGRUZKU to "Прибыл на разгрузку",
-    EventTypes.RAZGRUZILSYA to "Разгрузился (фото документа)"
+    EventTypes.RAZGRUZILSYA to "Разгрузился (фото)"
 )
 
 // Во вкладке «Мои рейсы» всегда только текущая разнарядка (см.
@@ -111,23 +120,35 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
 
-    // Камера приложения пишет фото в файл, подготовленный заранее
-    // (prepareCapture), — галереи в этом пути нет вообще.
-    var captureTarget by remember { mutableStateOf<Pair<TripDto, File>?>(null) }
-    var noPhotoTarget by remember { mutableStateOf<TripDto?>(null) }
-    var cameraDenied by remember { mutableStateOf(false) }
-    var cameraRequestTrip by remember { mutableStateOf<TripDto?>(null) }
+    // Съёмка этапа идёт в отдельном окне камеры; пока оно открыто, этот
+    // экран может пересоздаться — поэтому состояние сохраняемое.
+    var session by rememberSaveable(stateSaver = PhotoSessionSaver) { mutableStateOf<PhotoSession?>(null) }
+    var askMissing by rememberSaveable { mutableStateOf(false) }
+    var cameraDenied by rememberSaveable { mutableStateOf(false) }
+    val photoLauncher = rememberLauncherForActivityResult(CapturePhotos()) { result ->
+        val current = session
+        if (current == null) {
+            result.photos.forEach { File(it.path).delete() }
+            return@rememberLauncherForActivityResult
+        }
+        val merged = current.photos + result.photos
+        if (result.completed || nextMissingStep(current.steps, merged) == null) {
+            session = null
+            viewModel.onStepPhotos(current.tripId, current.eventType, merged)
+        } else {
+            session = current.copy(photos = merged)
+            askMissing = true
+        }
+    }
     val requestCamera = rememberCameraAccess(onDenied = {
         cameraDenied = true
-        noPhotoTarget = cameraRequestTrip
-        cameraRequestTrip = null
+        askMissing = true
     })
-    fun openCamera(trip: TripDto) {
-        cameraRequestTrip = trip
+    fun launchCamera(target: PhotoSession) {
+        val start = nextMissingStep(target.steps, target.photos) ?: 0
         requestCamera {
-            cameraRequestTrip = null
             cameraDenied = false
-            captureTarget = trip to viewModel.prepareCapture()
+            photoLauncher.launch(PhotoCaptureRequest(target.eventType, start))
         }
     }
 
@@ -181,8 +202,10 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
                     expandedTripId = expandedTripId,
                     onToggle = { tripId -> expandedTripId = if (expandedTripId == tripId) null else tripId },
                     onAction = { trip, type ->
-                        if (type == EventTypes.RAZGRUZILSYA) {
-                            openCamera(trip)
+                        if (photoStepsFor(type) != null) {
+                            val started = PhotoSession(trip.id, type, emptyList())
+                            session = started
+                            launchCamera(started)
                         } else {
                             viewModel.onTripAction(trip, type)
                         }
@@ -211,37 +234,56 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
         )
     }
 
-    captureTarget?.let { (trip, file) ->
-        GuidedPhotoDialog(
-            prompt = "Сфотографируйте документ",
-            hint = "Весь лист в кадре, подпись и печать должны читаться",
-            target = file,
-            onCaptured = {
-                captureTarget = null
-                viewModel.onPhotoCaptured(trip, file)
+    val pending = session
+    if (askMissing && pending != null) {
+        MissingPhotosDialog(
+            missing = pending.steps.filter { step -> pending.photos.none { it.kind == step.kind } },
+            cameraDenied = cameraDenied,
+            onContinue = {
+                askMissing = false
+                launchCamera(pending)
             },
-            onCancel = {
-                captureTarget = null
-                file.delete()
-                noPhotoTarget = trip
+            onMarkWithout = { reason ->
+                askMissing = false
+                session = null
+                viewModel.onStepPhotos(pending.tripId, pending.eventType, pending.photos, reason)
+            },
+            onAbort = {
+                askMissing = false
+                session = null
+                pending.photos.forEach { File(it.path).delete() }
             }
         )
     }
+}
 
-    noPhotoTarget?.let { trip ->
-        NoPhotoDialog(
-            cameraDenied = cameraDenied,
-            onRetryPhoto = {
-                noPhotoTarget = null
-                openCamera(trip)
-            },
-            onConfirmWithoutPhoto = { reason ->
-                viewModel.onUnloadWithoutPhoto(trip, reason)
-                noPhotoTarget = null
-            },
-            onDismiss = { noPhotoTarget = null }
+// Этап с обязательными фото, который снимается сейчас: рейс, тип события и
+// уже принятые снимки (вместе с теми, что сняты до выхода из камеры).
+private data class PhotoSession(val tripId: String, val eventType: String, val photos: List<CapturedPhoto>) {
+    val steps: List<PhotoStep> get() = photoStepsFor(eventType).orEmpty()
+}
+
+private val PhotoSessionSaver = Saver<PhotoSession?, ArrayList<String>>(
+    save = { session ->
+        session?.let {
+            arrayListOf(it.tripId, it.eventType).apply { it.photos.forEach { photo -> add(photo.kind.code); add(photo.path) } }
+        }
+    },
+    restore = { saved ->
+        PhotoSession(
+            tripId = saved[0],
+            eventType = saved[1],
+            photos = saved.drop(2).chunked(2).mapNotNull { (code, path) ->
+                PhotoKind.fromCode(code)?.let { CapturedPhoto(it, path) }
+            }
         )
     }
+)
+
+private fun PhotoKind.label(): String = when (this) {
+    PhotoKind.TRUCK_REAR -> "грузовик сзади"
+    PhotoKind.TRUCK_SIDE -> "грузовик сбоку"
+    PhotoKind.DOCUMENT -> "документ"
 }
 
 @Composable
@@ -314,21 +356,24 @@ private fun RoadmapList(
     }
 }
 
-// Фото не получилось. Закрыть рейс всё равно надо — иначе встаёт смена.
-// Причина обязательна: она уйдёт в 1С комментарием, чтобы отсутствие
-// накладной было объяснено.
+// Водитель вышел из камеры, не сняв всё. Фото обязательны, но закрыть рейс
+// всё равно надо — иначе встаёт смена: тогда только с причиной, она уйдёт в
+// 1С комментарием. Уже снятые кадры не теряются ни при «Продолжить», ни при
+// отметке без недостающих. Случайным тапом мимо окно не закрывается — это
+// выбросило бы снятые кадры.
 @Composable
-private fun NoPhotoDialog(
+private fun MissingPhotosDialog(
+    missing: List<PhotoStep>,
     cameraDenied: Boolean,
-    onRetryPhoto: () -> Unit,
-    onConfirmWithoutPhoto: (String) -> Unit,
-    onDismiss: () -> Unit
+    onContinue: () -> Unit,
+    onMarkWithout: (String) -> Unit,
+    onAbort: () -> Unit
 ) {
-    var reason by remember { mutableStateOf("") }
+    var reason by rememberSaveable { mutableStateOf("") }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Фото не сделано") },
+        onDismissRequest = {},
+        title = { Text("Не все фото сделаны") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (cameraDenied) {
@@ -339,7 +384,11 @@ private fun NoPhotoDialog(
                     )
                 }
                 Text(
-                    text = "Можно переснять или закрыть разгрузку без фото, указав причину.",
+                    text = "Осталось снять: ${missing.joinToString(", ") { it.kind.label() }}.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "Если снять нельзя — укажите причину, этап отметится без недостающих фото.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 OutlinedTextField(
@@ -348,14 +397,15 @@ private fun NoPhotoDialog(
                     label = { Text("Причина (обязательно)") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                TextButton(onClick = onAbort) { Text("Отменить этап") }
             }
         },
         confirmButton = {
-            Button(onClick = onRetryPhoto) { Text("Переснять") }
+            Button(onClick = onContinue) { Text("Продолжить съёмку") }
         },
         dismissButton = {
-            TextButton(onClick = { onConfirmWithoutPhoto(reason) }, enabled = reason.isNotBlank()) {
-                Text("Без фото")
+            TextButton(onClick = { onMarkWithout(reason) }, enabled = reason.isNotBlank()) {
+                Text("Без недостающих")
             }
         }
     )

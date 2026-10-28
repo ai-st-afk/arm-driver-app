@@ -43,7 +43,14 @@ class DocumentRepository @Inject constructor(
     // вообще (инвариант «только с камеры», озвученный автором).
     fun createCaptureFile(): File = File(photosDir, "${UUID.randomUUID()}.jpg")
 
-    suspend fun enqueue(file: File, driverId: String, assignmentId: String, tripId: String) {
+    suspend fun enqueue(
+        file: File,
+        driverId: String,
+        assignmentId: String,
+        tripId: String,
+        eventId: String,
+        kind: PhotoKind
+    ) {
         compressInPlace(file)
         dao.insert(
             PendingPhotoEntity(
@@ -51,9 +58,20 @@ class DocumentRepository @Inject constructor(
                 tripId = tripId,
                 driverId = driverId,
                 assignmentId = assignmentId,
-                filePath = file.absolutePath
+                filePath = file.absolutePath,
+                eventId = eventId,
+                kind = kind.code
             )
         )
+    }
+
+    // Шаг откатили кнопкой «Отмена», пока он не ушёл в 1С: его фото тоже не
+    // должны уйти — иначе в 1С окажутся снимки к несуществующему событию.
+    suspend fun discardForEvent(eventId: String) {
+        dao.getByEvent(eventId).forEach { photo ->
+            dao.deleteById(photo.id)
+            File(photo.filePath).delete()
+        }
     }
 
     fun observePendingCount(): Flow<Int> = dao.observePendingCount()
@@ -78,6 +96,8 @@ class DocumentRepository @Inject constructor(
                     driverId = photo.driverId.toRequestBody("text/plain".toMediaType()),
                     assignmentId = photo.assignmentId.toRequestBody("text/plain".toMediaType()),
                     tripId = photo.tripId.toRequestBody("text/plain".toMediaType()),
+                    eventId = photo.eventId?.toRequestBody("text/plain".toMediaType()),
+                    kind = photo.kind?.toRequestBody("text/plain".toMediaType()),
                     photo = MultipartBody.Part.createFormData(
                         "photo",
                         file.name,

@@ -77,6 +77,7 @@ private val tabs = listOf(
 
 @Composable
 fun MainScaffold(
+    startOnSettings: Boolean = false,
     navController: NavHostController = rememberNavController(),
     queueViewModel: QueueViewModel = hiltViewModel(),
     currentViewModel: CurrentAssignmentViewModel = hiltViewModel()
@@ -133,7 +134,7 @@ fun MainScaffold(
 
             NavHost(
                 navController = navController,
-                startDestination = MainRoutes.ASSIGNMENTS_GRAPH
+                startDestination = if (startOnSettings) MainRoutes.SETTINGS else MainRoutes.ASSIGNMENTS_GRAPH
             ) {
                 navigation(startDestination = MainRoutes.ASSIGNMENTS, route = MainRoutes.ASSIGNMENTS_GRAPH) {
                     composable(MainRoutes.ASSIGNMENTS) {

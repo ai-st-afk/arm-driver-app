@@ -3,7 +3,13 @@ package httpapi
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
+)
+
+var (
+	guidPattern      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	photoKindPattern = regexp.MustCompile(`^[a-z_]{1,32}$`)
 )
 
 var assignmentLevelEvents = map[string]bool{

@@ -231,6 +231,11 @@ type eventSendResultJSON struct {
 	Code string `json:"code,omitempty"`
 }
 
+type driverResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type errorResponse struct {
 	Error string `json:"error"`
 	Code  string `json:"code"`

@@ -182,3 +182,9 @@ data class DocumentUploadResponse(
     val status: String,
     val id: String? = null
 )
+
+@Serializable
+data class DriverDto(
+    val id: String,
+    val name: String
+)

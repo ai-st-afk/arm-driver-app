@@ -1,10 +1,6 @@
 package ru.profstroyservices.armdriver.ui.camera
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.view.OrientationEventListener
 import android.view.Surface
@@ -64,21 +60,8 @@ internal fun CameraPreview(useCase: UseCase, onError: (Throwable) -> Unit, modif
     AndroidView(factory = { previewView }, modifier = modifier)
 }
 
-// Пока открыта камера, экран не поворачивается: поворот пересоздаёт
-// Activity, и камера закрылась бы посреди съёмки (грузовик сбоку снимают,
-// повернув телефон). Поворот самого снимка берём с датчика — см.
-// TrackDeviceRotation.
-@Composable
-internal fun LockOrientationWhileVisible() {
-    val activity = LocalContext.current.findActivity() ?: return
-    DisposableEffect(activity) {
-        val previous = activity.requestedOrientation
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
-        onDispose { activity.requestedOrientation = previous }
-    }
-}
-
-// Экран зафиксирован, поэтому ориентацию снимка нельзя брать с дисплея —
+// Экран камеры зафиксирован в портрете (манифест), поэтому ориентацию
+// снимка нельзя брать с дисплея —
 // иначе фото, снятое в горизонтальном положении, ляжет на бок.
 @Composable
 internal fun TrackDeviceRotation(onRotation: (Int) -> Unit) {
@@ -125,13 +108,4 @@ fun rememberCameraAccess(onDenied: () -> Unit): (onGranted: () -> Unit) -> Unit 
             }
         }
     }
-}
-
-internal fun Context.findActivity(): Activity? {
-    var current: Context = this
-    while (current is ContextWrapper) {
-        if (current is Activity) return current
-        current = current.baseContext
-    }
-    return null
 }

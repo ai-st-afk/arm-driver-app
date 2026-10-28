@@ -44,3 +44,11 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
         db.execSQL("ALTER TABLE pending_events ADD COLUMN locationFixTime TEXT")
     }
 }
+
+// Несколько фото на этап: к какому событию снимок и что на нём.
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pending_photos ADD COLUMN eventId TEXT")
+        db.execSQL("ALTER TABLE pending_photos ADD COLUMN kind TEXT")
+    }
+}

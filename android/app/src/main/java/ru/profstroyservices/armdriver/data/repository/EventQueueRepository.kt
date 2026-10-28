@@ -83,9 +83,10 @@ class EventQueueRepository @Inject constructor(
 
     // То же самое, но по типу шага и рейсу — когда конкретный id события
     // уже не под рукой (кнопка «Отмена» открыта позже, не сразу после тапа).
-    suspend fun cancelStep(assignmentId: String, tripId: String, type: String): Boolean {
-        val event = dao.findUnsent(assignmentId, tripId, type) ?: return false
-        return cancelPending(event.id)
+    // Возвращает GUID отменённого события — по нему снимаются и его фото.
+    suspend fun cancelStep(assignmentId: String, tripId: String, type: String): String? {
+        val event = dao.findUnsent(assignmentId, tripId, type) ?: return null
+        return event.id.takeIf { cancelPending(it) }
     }
 
     // Инвариант 2 из AGENTS.md: помечаем отправленными только accepted:true,

@@ -20,6 +20,7 @@ import ru.profstroyservices.armdriver.data.network.TripDto
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.AssignmentStateRepository
+import ru.profstroyservices.armdriver.data.repository.CapturedPhoto
 import ru.profstroyservices.armdriver.data.repository.DocumentRepository
 import ru.profstroyservices.armdriver.data.repository.EventQueueRepository
 import ru.profstroyservices.armdriver.data.repository.EventTypes
@@ -148,9 +149,10 @@ class RoadmapViewModel @Inject constructor(
         val lastType = EventTypes.TRIP_CYCLE.lastOrNull { it in progress.doneTypes } ?: return
         viewModelScope.launch {
             flushJob?.cancel()
-            val cancelled = eventQueue.cancelStep(state.id, trip.id, lastType)
+            val cancelledId = eventQueue.cancelStep(state.id, trip.id, lastType)
+            cancelledId?.let { documents.discardForEvent(it) }
             emitFeedback(
-                if (cancelled) "${actionFeedbackText(lastType)} — отменено" else "Шаг уже отправлен в 1С, отменить нельзя",
+                if (cancelledId != null) "${actionFeedbackText(lastType)} — отменено" else "Шаг уже отправлен в 1С, отменить нельзя",
                 null
             )
             scheduleFlush()
@@ -167,36 +169,44 @@ class RoadmapViewModel @Inject constructor(
         }
     }
 
-    // Файл создаётся синхронно, сеть тут не участвует — можно дёргать прямо
-    // из Compose перед запуском камеры.
-    fun prepareCapture() = documents.createCaptureFile()
-
-    // Разгрузился фиксируется вместе с фото: сначала фото ставится в свою
-    // очередь на загрузку, потом обычное событие Разгрузился.
-    fun onPhotoCaptured(trip: TripDto, file: File) {
-        val state = markableState() ?: return
+    // Этап с обязательными фото (Загрузился, Разгрузился). Сначала событие —
+    // его GUID, время и геометка фиксируются сейчас (инвариант 1), потом
+    // снимки с привязкой к нему. Не хватает снимков — без этого рейс не
+    // закрыть, поэтому причина обязательна и уходит в 1С комментарием.
+    // Быстрой отмены в снекбаре нет: откатить можно кнопкой «Отмена» в
+    // карточке, вместе с фото (см. onStepBack).
+    fun onStepPhotos(tripId: String, type: String, photos: List<CapturedPhoto>, missingReason: String? = null) {
+        val state = markableState()
+        if (state == null || state.trips.none { it.trip.id == tripId }) {
+            photos.forEach { File(it.path).delete() }
+            return
+        }
         viewModelScope.launch {
             val driverId = settings.driverId.first() ?: return@launch
-            documents.enqueue(file = file, driverId = driverId, assignmentId = state.id, tripId = trip.id)
-            enqueue(state, EventTypes.RAZGRUZILSYA, trip.id)
-            // Отмены здесь нет: фото уже снято и лежит в своей очереди,
-            // откат события оставил бы его висеть без рейса.
-            emitFeedback(actionFeedbackText(EventTypes.RAZGRUZILSYA), null)
+            val comment = when {
+                missingReason == null -> ""
+                photos.isEmpty() -> "Без фото: $missingReason"
+                else -> "Не все фото: $missingReason"
+            }
+            val eventId = enqueue(state, type, tripId, comment)
+            if (eventId == null) {
+                // Шаг уже был отмечен — повторно снимки не нужны.
+                photos.forEach { File(it.path).delete() }
+                return@launch
+            }
+            photos.forEach {
+                documents.enqueue(
+                    file = File(it.path),
+                    driverId = driverId,
+                    assignmentId = state.id,
+                    tripId = tripId,
+                    eventId = eventId,
+                    kind = it.kind
+                )
+            }
+            emitFeedback(actionFeedbackText(type) + if (missingReason != null) ", не все фото" else "", null)
             flushJob?.cancel()
             queue.flush()
-        }
-    }
-
-    // Разгрузка без фото: накладную не отдали, камера не сработала. Без
-    // этого пути рейс нельзя закрыть вообще, поэтому причина уходит
-    // комментарием к событию.
-    fun onUnloadWithoutPhoto(trip: TripDto, reason: String) {
-        val state = markableState() ?: return
-        viewModelScope.launch {
-            val eventId = enqueue(state, EventTypes.RAZGRUZILSYA, trip.id, "Без фото документа: $reason")
-                ?: return@launch
-            emitFeedback("Разгрузился, без фото", eventId)
-            scheduleFlush()
         }
     }
 
