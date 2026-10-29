@@ -39,4 +39,8 @@ interface GatewayApi {
 
     @GET("api/mobile/drivers/{id}")
     suspend fun getDriver(@Path("id") id: String): DriverDto
+
+    // Сам APK качается не через Retrofit, а потоком с докачкой — см. AppUpdater.
+    @GET("api/mobile/app/latest")
+    suspend fun latestApp(): AppReleaseDto
 }

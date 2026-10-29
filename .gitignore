@@ -1,5 +1,6 @@
 .env
 backend/gateway/data/
+releases/
 __pycache__/
 *.pyc
 .idea/

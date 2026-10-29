@@ -15,6 +15,11 @@
     <!-- Своя камера в приложении: фото на этапах рейса и QR водителя при
          привязке. Запрашивается при первом запуске вместе с остальными. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Самообновление со шлюза (AppUpdater): установка своей новой версии.
+         Первое — «Установка неизвестных приложений», водитель включает один
+         раз; второе — чтобы дальше система ставила обновление без вопросов. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <application
         android:name=".ArmDriverApp"
@@ -42,6 +47,18 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.ArmDriver" />
+
+        <receiver
+            android:name=".data.update.UpdateStatusReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".data.update.AppUpdatedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".push.ArmDriverFirebaseMessagingService"

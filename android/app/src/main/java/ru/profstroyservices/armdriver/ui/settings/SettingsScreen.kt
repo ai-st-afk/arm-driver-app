@@ -28,13 +28,21 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import ru.profstroyservices.armdriver.BuildConfig
+import ru.profstroyservices.armdriver.data.update.UpdateState
 import ru.profstroyservices.armdriver.ui.components.LabeledField
+import ru.profstroyservices.armdriver.ui.update.UpdateViewModel
+import ru.profstroyservices.armdriver.ui.update.installPermissionIntent
 
 private val ButtonHeight = 56.dp
 
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    viewModel: SettingsViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsState()
+    val updateState by updateViewModel.state.collectAsState()
+    val installAllowed by updateViewModel.installAllowed.collectAsState()
     val context = LocalContext.current
     var showService by remember { mutableStateOf(false) }
 
@@ -76,10 +84,42 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
             }
 
             LabeledField(label = "Версия приложения", value = BuildConfig.VERSION_NAME)
+            Text(text = updateStatusText(updateState, installAllowed), style = MaterialTheme.typography.bodySmall)
+            if (!installAllowed) {
+                OutlinedButton(
+                    onClick = { context.startActivity(installPermissionIntent(context.packageName)) },
+                    modifier = Modifier.fillMaxWidth().height(ButtonHeight)
+                ) {
+                    Text("Разрешить автообновление", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            OutlinedButton(
+                onClick = updateViewModel::checkNow,
+                enabled = updateState !is UpdateState.Checking && updateState !is UpdateState.Downloading &&
+                    updateState !is UpdateState.Installing,
+                modifier = Modifier.fillMaxWidth().height(ButtonHeight)
+            ) {
+                Text("Проверить обновления", style = MaterialTheme.typography.labelLarge)
+            }
 
             TextButton(onClick = { showService = true }) {
                 Text("Служебный вход")
             }
         }
     }
+}
+
+private fun updateStatusText(state: UpdateState, installAllowed: Boolean): String = when (state) {
+    UpdateState.Idle, UpdateState.Checking -> "Проверяем обновления…"
+    UpdateState.UpToDate -> "Установлена последняя версия."
+    is UpdateState.Downloading -> "Скачивается версия ${state.versionName}: ${state.percent}%"
+    is UpdateState.Ready -> if (installAllowed) {
+        "Версия ${state.versionName} скачана и установится, когда свернёте приложение."
+    } else {
+        "Версия ${state.versionName} скачана. Чтобы она установилась, разрешите автообновление."
+    }
+    is UpdateState.Installing -> "Устанавливается версия ${state.versionName}…"
+    is UpdateState.NeedsConfirmation -> "Версия ${state.versionName} ждёт подтверждения установки."
+    is UpdateState.CheckFailed -> state.message
+    is UpdateState.InstallFailed -> state.message
 }

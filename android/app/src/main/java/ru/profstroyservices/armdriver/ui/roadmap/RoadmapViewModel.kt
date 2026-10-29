@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.profstroyservices.armdriver.data.network.TripDto
+import ru.profstroyservices.armdriver.data.update.AppUpdater
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.AssignmentStateRepository
@@ -67,7 +68,8 @@ class RoadmapViewModel @Inject constructor(
     private val eventQueue: EventQueueRepository,
     private val documents: DocumentRepository,
     private val queue: QueueRepository,
-    private val settings: DriverSettingsRepository
+    private val settings: DriverSettingsRepository,
+    private val updater: AppUpdater
 ) : ViewModel() {
 
     private val assignmentId: String = checkNotNull(savedStateHandle["assignmentId"])
@@ -143,6 +145,8 @@ class RoadmapViewModel @Inject constructor(
     // Кнопка «Отмена» в карточке рейса: случайный лишний тап продвинул рейс
     // на шаг вперёд — откатываем последний шаг, пока он не ушёл в 1С. Это
     // исправление своей ошибки, а не отмена рейса (её делает диспетчер).
+    fun holdUpdates(): () -> Unit = updater.holdInstall()
+
     fun onStepBack(trip: TripDto) {
         val state = currentState() ?: return
         val progress = state.trips.find { it.trip.id == trip.id } ?: return

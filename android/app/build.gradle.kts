@@ -37,8 +37,8 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 33
         targetSdk = 35
-        versionCode = 36
-        versionName = "0.8.1"
+        versionCode = 37
+        versionName = "0.9.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -70,7 +70,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -95,6 +96,8 @@ dependencies {
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
+    // Свёрнуто ли приложение целиком (а не одно окно) — тогда ставим обновление.
+    implementation(libs.lifecycle.process)
     implementation(libs.activity.compose)
 
     implementation(platform(libs.compose.bom))

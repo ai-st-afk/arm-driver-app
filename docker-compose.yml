@@ -7,6 +7,7 @@ services:
     environment:
       HTTP_PORT: "8080"
       DATA_DIR: "/app/data"
+      RELEASES_DIR: "/app/releases"
     networks:
       - edge
     labels:
@@ -19,6 +20,10 @@ services:
       # Технический delivery-cache: FCM-токены устройств и последние XML
       # разнарядок для выдачи мобильному приложению после push.
       - arm_driver_gateway_data:/app/data
+      # APK для самообновления приложения. Папка на хосте, а не в volume:
+      # tools/release-apk.sh кладёт туда файл rsync'ом, шлюз только читает,
+      # и новая версия раздаётся без перезапуска контейнера.
+      - ./releases:/app/releases:ro
 
 networks:
   edge:

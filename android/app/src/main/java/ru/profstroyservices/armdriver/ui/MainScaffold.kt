@@ -39,6 +39,7 @@ import ru.profstroyservices.armdriver.ui.queue.QueueViewModel
 import ru.profstroyservices.armdriver.ui.queue.UnsentBanner
 import ru.profstroyservices.armdriver.ui.roadmap.RoadmapScreen
 import ru.profstroyservices.armdriver.ui.settings.SettingsScreen
+import ru.profstroyservices.armdriver.ui.update.UpdateBanner
 import ru.profstroyservices.armdriver.ui.assignment.GateMode
 import ru.profstroyservices.armdriver.ui.current.CurrentAssignmentBar
 import ru.profstroyservices.armdriver.ui.current.CurrentAssignmentViewModel
@@ -129,6 +130,7 @@ fun MainScaffold(
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding)
         ) {
+            UpdateBanner()
             UnsentBanner(state = queueState, onRetry = queueViewModel::onRetry)
             current?.state?.let { CurrentAssignmentBar(state = it) }
 

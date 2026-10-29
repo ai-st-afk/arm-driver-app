@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -124,6 +125,13 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
     // экран может пересоздаться — поэтому состояние сохраняемое.
     var session by rememberSaveable(stateSaver = PhotoSessionSaver) { mutableStateOf<PhotoSession?>(null) }
     var askMissing by rememberSaveable { mutableStateOf(false) }
+    // Пока этап снимается (камера или вопрос о недостающих фото),
+    // обновление не ставим — оно закрыло бы приложение вместе со снимками.
+    val photoInProgress = session != null
+    DisposableEffect(photoInProgress) {
+        val release = if (photoInProgress) viewModel.holdUpdates() else null
+        onDispose { release?.invoke() }
+    }
     var cameraDenied by rememberSaveable { mutableStateOf(false) }
     val photoLauncher = rememberLauncherForActivityResult(CapturePhotos()) { result ->
         val current = session

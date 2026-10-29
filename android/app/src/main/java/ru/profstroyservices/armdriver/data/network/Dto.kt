@@ -188,3 +188,12 @@ data class DriverDto(
     val id: String,
     val name: String
 )
+
+// Последняя опубликованная версия приложения (GET /api/mobile/app/latest).
+@Serializable
+data class AppReleaseDto(
+    @SerialName("version_code") val versionCode: Int,
+    @SerialName("version_name") val versionName: String,
+    val sha256: String,
+    val size: Long
+)

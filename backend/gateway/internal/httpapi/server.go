@@ -59,6 +59,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/mobile/events", s.receiveEvents)
 	mux.HandleFunc("POST /api/mobile/documents", s.uploadDocument)
 	mux.HandleFunc("GET /api/mobile/drivers/{id}", s.driverByID)
+	mux.HandleFunc("GET /api/mobile/app/latest", s.latestAppVersion)
+	mux.HandleFunc("GET /api/mobile/app/download", s.downloadApp)
 	return s.recover(s.requestLog(mux))
 }
 
