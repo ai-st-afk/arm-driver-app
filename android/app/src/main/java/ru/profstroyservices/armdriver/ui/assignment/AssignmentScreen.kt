@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -48,9 +50,14 @@ import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.CargoDetails
 import ru.profstroyservices.armdriver.ui.components.LabeledField
+import ru.profstroyservices.armdriver.ui.components.TripContacts
+import ru.profstroyservices.armdriver.ui.components.formatTime
+import ru.profstroyservices.armdriver.ui.components.pointLabel
+import ru.profstroyservices.armdriver.ui.components.pointShortLabel
 import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
 import ru.profstroyservices.armdriver.ui.theme.statusActiveContainer
 import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.util.Date
 import java.util.Locale
 
@@ -201,14 +208,44 @@ private fun AssignmentContent(
             value = "${assignment.vehicle.name ?: ""} ${assignment.vehicle.plate ?: ""}".trim()
         )
         LabeledField(label = "Рейсов на смену", value = state.trips.size.toString())
-        state.trips.forEach { progress ->
-            progress.trip.trailer.plate?.takeIf { it.isNotBlank() }?.let { plate ->
-                LabeledField(
-                    label = "Прицеп · рейс ${progress.trip.order}" + if (progress.isCancelled) " (снят)" else "",
-                    value = plate
+        if (state.phase != AssignmentPhase.NEW && state.phase != AssignmentPhase.ACCEPTED) {
+            state.trips.forEach { progress ->
+                progress.trip.trailer.plate?.takeIf { it.isNotBlank() }?.let { plate ->
+                    LabeledField(
+                        label = "Прицеп · рейс ${progress.trip.order}" + if (progress.isCancelled) " (снят)" else "",
+                        value = plate
+                    )
+                }
+            }
+        }
+    }
+
+    if (isFutureAssignment(assignment.departureDay)) {
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = if (isTomorrowAssignment(assignment.departureDay)) {
+                        "Разнарядка на завтра. Это не текущая смена."
+                    } else {
+                        "Будущая разнарядка. Это не текущая смена."
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Сначала посмотрите все ездки ниже, затем нажмите «Ознакомился и принял».",
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
+    }
+
+    if (state.phase == AssignmentPhase.NEW || state.phase == AssignmentPhase.ACCEPTED) {
+        UpcomingTrips(state)
     }
 
     Text("Итого за смену", style = MaterialTheme.typography.titleMedium)
@@ -320,6 +357,77 @@ private fun AssignmentContent(
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+internal fun isFutureAssignment(departureDay: String, today: LocalDate = LocalDate.now()): Boolean =
+    runCatching { LocalDate.parse(departureDay).isAfter(today) }.getOrDefault(false)
+
+internal fun isTomorrowAssignment(departureDay: String, today: LocalDate = LocalDate.now()): Boolean =
+    runCatching { LocalDate.parse(departureDay) == today.plusDays(1) }.getOrDefault(false)
+
+@Composable
+private fun UpcomingTrips(state: AssignmentState) {
+    Text("Ездки по плану", style = MaterialTheme.typography.titleMedium)
+    Text(
+        text = "Это только просмотр. Отмечать этапы нужно после начала смены во вкладке «Мои рейсы».",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    if (state.trips.isEmpty()) {
+        Text("Ездки ещё не переданы", style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+    state.trips.forEach { progress ->
+        val trip = progress.trip
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "${trip.order}. ${pointShortLabel(trip.loadPoint)} → ${pointShortLabel(trip.unloadPoint)}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (progress.isCancelled) {
+                    Text(
+                        text = "Ездка снята диспетчером",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                tripPlanLabel(trip.planLoad, trip.planUnload)?.let {
+                    LabeledField(label = "Время по плану", value = it)
+                }
+                LabeledField(label = "Погрузка", value = pointLabel(trip.loadPoint))
+                LabeledField(label = "Разгрузка", value = pointLabel(trip.unloadPoint))
+                trip.trailer.plate?.takeIf { it.isNotBlank() }?.let {
+                    LabeledField(label = "Прицеп", value = it)
+                }
+                trip.customer?.takeIf { it.isNotBlank() }?.let {
+                    LabeledField(label = "Заказчик", value = it)
+                }
+                CargoDetails(trip.cargo.positions, trip.cargo.weight, trip.cargo.volume, trip.cargo.composition)
+                TripContacts(trip.contacts)
+            }
+        }
+    }
+}
+
+private fun tripPlanLabel(planLoad: String?, planUnload: String?): String? {
+    val load = formatTime(planLoad)
+    val unload = formatTime(planUnload)
+    return when {
+        load != null && unload != null -> "$load — $unload"
+        load != null -> load
+        unload != null -> unload
+        else -> null
     }
 }
 

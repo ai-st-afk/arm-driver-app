@@ -1,7 +1,6 @@
 package ru.profstroyservices.armdriver.ui.assignment
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.profstroyservices.armdriver.data.db.PendingEventEntity
@@ -12,6 +11,7 @@ import ru.profstroyservices.armdriver.data.network.TripDto
 import ru.profstroyservices.armdriver.data.network.VehicleDto
 import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.data.repository.assignmentState
+import java.time.LocalDate
 
 class AssignmentsListViewModelTest {
 
@@ -105,11 +105,37 @@ class AssignmentsListViewModelTest {
     }
 
     @Test
-    fun `active assignment has no trips summary`() {
-        val state = assignmentState(assignment("A"), emptyList())
+    fun `current shift stays above tomorrow assignment`() {
+        val current = assignmentState(
+            assignment("A", day = "2026-09-22"),
+            listOf(event("A", EventTypes.OZNAKOMLENIE), event("A", EventTypes.NACHALO_SMENY))
+        )
+        val tomorrow = assignmentState(assignment("B", day = "2026-09-23"), emptyList())
+
+        val ids = assignmentsListState(listOf(tomorrow, current)).assignments.map { it.id }
+
+        assertEquals(listOf("A", "B"), ids)
+    }
+
+    @Test
+    fun `new assignment shows trips before acknowledge`() {
+        val state = assignmentState(
+            assignment("A", trips = listOf(trip("A-t1", 1, loadName = "Киров", unloadName = "Мураши"))),
+            emptyList()
+        )
 
         val summary = assignmentsListState(listOf(state)).assignments.single()
 
-        assertNull(summary.tripsSummary)
+        assertEquals("Киров → Мураши", summary.tripsSummary)
+    }
+
+    @Test
+    fun `tomorrow is distinguished from other future dates`() {
+        val today = LocalDate.parse("2026-09-22")
+
+        assertTrue(isTomorrowAssignment("2026-09-23", today))
+        assertTrue(isFutureAssignment("2026-09-24", today))
+        assertEquals(false, isTomorrowAssignment("2026-09-24", today))
+        assertEquals(false, isFutureAssignment("2026-09-22", today))
     }
 }

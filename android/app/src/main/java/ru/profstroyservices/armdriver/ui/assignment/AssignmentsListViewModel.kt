@@ -26,8 +26,8 @@ data class AssignmentSummary(
     // Принята, но смена ещё не начата — список подсвечивает такие жёлтым,
     // чтобы сразу было видно, что это предстоит, а не прошлое/текущее.
     val isPending: Boolean,
-    // Только для истории (FINISHED/CANCELLED) — водитель видит, что это
-    // была за поездка, без открытия самой разнарядки.
+    // Краткий маршрут виден прямо в списке, включая завтрашнюю разнарядку
+    // до ознакомления. Полные адреса и груз — внутри карточки.
     val tripsSummary: String?
 )
 
@@ -70,11 +70,12 @@ class AssignmentsListViewModel @Inject constructor(
 // по образцу currentAssignment() в AssignmentState.kt.
 fun assignmentsListState(all: List<AssignmentState>): AssignmentsListUiState.Loaded {
     val current = currentAssignment(all)
-    // Новые дни выезда — сверху (водителю актуальнее «сегодня/завтра», чем
-    // то, что уже прошло); внутри одного дня текущая и более живая фаза —
-    // выше (например, старая и новая при замене экипажа в один день).
+    // Текущая смена всегда первая: завтрашняя разнарядка может прийти прямо
+    // во время работы и не должна визуально вытеснить активный маршрут.
+    // Остальные — новые дни выезда сверху, внутри дня более живая фаза выше.
     val ordered = all.sortedWith(
-        compareByDescending<AssignmentState> { it.assignment.departureDay }
+        compareBy<AssignmentState> { it.phase != AssignmentPhase.IN_SHIFT }
+            .thenByDescending { it.assignment.departureDay }
             .thenBy { it.id != current?.id }
             .thenBy { phaseOrder(it.phase) }
     )
@@ -87,11 +88,7 @@ fun assignmentsListState(all: List<AssignmentState>): AssignmentsListUiState.Loa
                 statusLabel = statusLabel(state),
                 isCurrent = state.id == current?.id,
                 isPending = state.phase == AssignmentPhase.NEW || state.phase == AssignmentPhase.ACCEPTED,
-                tripsSummary = if (state.phase == AssignmentPhase.FINISHED || state.phase == AssignmentPhase.CANCELLED) {
-                    tripsSummary(state.trips.map { it.trip })
-                } else {
-                    null
-                }
+                tripsSummary = tripsSummary(state.trips.map { it.trip })
             )
         },
         current = current
