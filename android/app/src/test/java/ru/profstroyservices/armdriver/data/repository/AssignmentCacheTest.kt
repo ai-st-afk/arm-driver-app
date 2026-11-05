@@ -56,4 +56,25 @@ class AssignmentCacheTest {
         assertTrue("trip" in result.changedUnloadTripIds)
         assertEquals("Клиент перенёс приёмку", result.toAssignmentDto().trips.single().cancelReason)
     }
+
+    @Test
+    fun `rerouted failed trip requires acknowledgement`() {
+        val failed = assignment.copy(trips = listOf(assignment.trips.single().copy(status = STATUS_FAILED, cancelReason = "Поломка")))
+            .toEntity("driver", 100).copy(ackRequiredVersion = 2)
+        val returned = assignment.copy(version = 3, trips = listOf(assignment.trips.single().copy(
+            status = STATUS_ASSIGNED, unloadPoint = PointDto(address = "Новый адрес")
+        )))
+        val result = updatedAssignment(returned, failed, "driver", 200)!!
+        assertEquals(3, result.ackRequiredVersion)
+        assertTrue("trip" in result.changedUnloadTripIds)
+    }
+
+    @Test
+    fun `failed status and reason alone do not require acknowledgement`() {
+        val old = assignment.toEntity("driver", 100).copy(ackRequiredVersion = 2)
+        val failed = assignment.copy(version = 3, trips = listOf(assignment.trips.single().copy(
+            status = STATUS_FAILED, cancelReason = "Клиент не принимает"
+        )))
+        assertEquals(2, updatedAssignment(failed, old, "driver", 200)!!.ackRequiredVersion)
+    }
 }

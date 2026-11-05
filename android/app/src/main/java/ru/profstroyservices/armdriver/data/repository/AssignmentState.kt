@@ -22,7 +22,7 @@ enum class AssignmentPhase {
     CANCELLED
 }
 
-data class TripProgress(val trip: TripDto, val doneTypes: Set<String>, val failureSent: Boolean = false) {
+data class TripProgress(val trip: TripDto, val doneTypes: Set<String>, val failureSent: Boolean = false, val returnedAfterFailure: Boolean = false) {
     val isCancelled: Boolean get() = trip.status.equals(STATUS_CANCELLED, ignoreCase = true)
     val isInactive: Boolean get() = !trip.status.equals(STATUS_ASSIGNED, ignoreCase = true) &&
         !trip.status.equals("Активна", ignoreCase = true)
@@ -55,7 +55,11 @@ data class AssignmentState(
     val cancelledByDispatcher: Boolean get() = assignment.status.equals(STATUS_CANCELLED, ignoreCase = true)
     val tripsResolved: Int get() = trips.count { it.isResolved }
     val allTripsResolved: Boolean get() = cancelledByDispatcher || trips.all { it.isResolved }
-    val activeTrip: TripProgress? get() = if (cancelledByDispatcher) null else trips.firstOrNull { !it.isResolved }
+    // Вернувшаяся после Срыва ездка не выдёргивает водителя из следующей:
+    // её можно выбрать вручную, либо она откроется, когда остальные завершены.
+    val activeTrip: TripProgress? get() = if (cancelledByDispatcher) null else
+        trips.firstOrNull { !it.isResolved && !it.returnedAfterFailure }
+            ?: trips.firstOrNull { !it.isResolved }
     // Перед окончанием смены каждая назначенная ездка должна быть выполнена
     // или отмечена Срывом; отменённые диспетчером тоже не блокируют.
     val canEndShift: Boolean get() = phase == AssignmentPhase.IN_SHIFT && allTripsResolved && !needsReacknowledge
@@ -85,7 +89,23 @@ fun assignmentState(
         .sortedBy { it.order }
         .map { trip ->
             val tripEvents = active.filter { it.tripId == trip.id }
-            TripProgress(trip, tripEvents.map { it.type }.toSet(), tripEvents.any { it.type == EventTypes.SRYV && it.sent })
+            val previousFailure = tripEvents
+                .filter { it.type == EventTypes.SRYV && it.sent &&
+                    it.assignmentVersion != null && it.assignmentVersion < assignment.version }
+                .maxByOrNull { it.time }
+                ?.takeIf { trip.status.equals(STATUS_ASSIGNED, ignoreCase = true) }
+            // После перенаправления 1С сохраняет погрузку, но стирает прибытие
+            // на прежний адрес. Старый Срыв остаётся в истории, не в прогрессе.
+            val effectiveEvents = tripEvents.filterNot { event ->
+                previousFailure != null && ((event.type == EventTypes.SRYV && event.sent &&
+                    event.assignmentVersion != null && event.assignmentVersion < assignment.version) ||
+                    event.type == EventTypes.PRIBYL_NA_RAZGRUZKU && event.time <= previousFailure.time)
+            }
+            TripProgress(
+                trip, effectiveEvents.map { it.type }.toSet(),
+                effectiveEvents.any { it.type == EventTypes.SRYV && it.sent },
+                previousFailure != null
+            )
         }
 
     val phase = when {

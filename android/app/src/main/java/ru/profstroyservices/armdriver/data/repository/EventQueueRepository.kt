@@ -46,10 +46,11 @@ class EventQueueRepository @Inject constructor(
         comment: String = "",
         reason: String? = null
     ): String? {
-        val duplicate = if (type == EventTypes.OZNAKOMLENIE) {
-            dao.existsForVersion(assignmentId, type, assignmentVersion)
-        } else {
-            dao.exists(assignmentId, type, tripId)
+        val duplicate = when {
+            type == EventTypes.OZNAKOMLENIE -> dao.existsForVersion(assignmentId, type, assignmentVersion)
+            tripId != null && (type == EventTypes.SRYV || type == EventTypes.PRIBYL_NA_RAZGRUZKU) ->
+                dao.existsForTripVersion(assignmentId, type, tripId, assignmentVersion)
+            else -> dao.exists(assignmentId, type, tripId)
         }
         if (duplicate) return null
         val id = UUID.randomUUID().toString()

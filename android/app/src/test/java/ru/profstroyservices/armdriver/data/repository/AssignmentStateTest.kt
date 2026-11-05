@@ -65,6 +65,7 @@ class AssignmentStateTest {
         tripId: String? = null,
         version: Int? = 1,
         cancelled: Boolean = false,
+        sent: Boolean = false,
         time: String = "2026-09-22T0${eventSeq % 10}:00:00+03:00"
     ) = PendingEventEntity(
         id = "e${eventSeq++}",
@@ -75,6 +76,7 @@ class AssignmentStateTest {
         time = time,
         comment = "",
         cancelled = cancelled,
+        sent = sent,
         assignmentVersion = version
     )
 
@@ -191,6 +193,44 @@ class AssignmentStateTest {
         )
         assertTrue(state.trips.first().isFailurePending)
         assertEquals("A-t2", state.activeTrip?.trip?.id)
+    }
+
+    @Test
+    fun reroutedFailedTripKeepsLoadingButRequiresArrivalAtNewAddress() {
+        val events = listOf(
+            event("A", EventTypes.OZNAKOMLENIE),
+            event("A", EventTypes.NACHALO_SMENY),
+            event("A", EventTypes.PRIBYL_NA_POGRUZKU, "A-t1"),
+            event("A", EventTypes.ZAGRUZILSYA_V_PUT, "A-t1"),
+            event("A", EventTypes.PRIBYL_NA_RAZGRUZKU, "A-t1"),
+            event("A", EventTypes.SRYV, "A-t1", sent = true)
+        )
+        val rerouted = assignment("A", version = 2, trips = listOf(
+            trip("A-t1", 1, STATUS_ASSIGNED).copy(unloadPoint = PointDto(address = "Новый адрес")),
+            trip("A-t2", 2, STATUS_ASSIGNED)
+        ))
+        val state = assignmentState(rerouted, events)
+        val returned = state.trips.first()
+        assertTrue(returned.returnedAfterFailure)
+        assertFalse(returned.isFailed)
+        assertTrue(EventTypes.ZAGRUZILSYA_V_PUT in returned.doneTypes)
+        assertFalse(EventTypes.PRIBYL_NA_RAZGRUZKU in returned.doneTypes)
+        assertEquals(EventTypes.PRIBYL_NA_RAZGRUZKU, returned.nextAction)
+        assertEquals("A-t2", state.activeTrip?.trip?.id)
+        assertTrue(state.needsReacknowledge)
+    }
+
+    @Test
+    fun newArrivalAfterRerouteAdvancesToUnloading() {
+        val events = listOf(
+            event("A", EventTypes.PRIBYL_NA_POGRUZKU, "A-t1"),
+            event("A", EventTypes.ZAGRUZILSYA_V_PUT, "A-t1"),
+            event("A", EventTypes.PRIBYL_NA_RAZGRUZKU, "A-t1"),
+            event("A", EventTypes.SRYV, "A-t1", sent = true),
+            event("A", EventTypes.PRIBYL_NA_RAZGRUZKU, "A-t1", version = 2)
+        )
+        val state = assignmentState(assignment("A", version = 2, trips = listOf(trip("A-t1", 1, STATUS_ASSIGNED))), events)
+        assertEquals(EventTypes.RAZGRUZILSYA, state.trips.single().nextAction)
     }
 
     @Test

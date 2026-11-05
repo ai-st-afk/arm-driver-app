@@ -89,7 +89,14 @@ internal fun updatedAssignment(
         keysAccepted = assignment.keysAccepted,
         keysAcceptedAt = assignment.keysAcceptedAt,
         shiftClosed = assignment.shiftClosed,
-        shiftClosedAt = assignment.shiftClosedAt
+        shiftClosedAt = assignment.shiftClosedAt,
+        // Подтверждать ознакомление нужно при изменении маршрута, а не при
+        // промежуточном статусе Сорвана и причине, пришедшей из 1С.
+        trips = old.trips.map { prior ->
+            val incoming = assignment.trips.firstOrNull { it.id == prior.id }
+            if (incoming?.status == STATUS_FAILED) prior.copy(status = incoming.status, cancelReason = incoming.cancelReason)
+            else prior
+        }
     ) != assignment
     val ackRequired = when {
         old == null -> assignment.version

@@ -70,6 +70,13 @@ interface PendingEventDao {
     )
     suspend fun exists(assignmentId: String, type: String, tripId: String?): Boolean
 
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM pending_events " +
+            "WHERE assignmentId = :assignmentId AND type = :type AND tripId = :tripId " +
+            "AND assignmentVersion = :assignmentVersion AND cancelled = 0)"
+    )
+    suspend fun existsForTripVersion(assignmentId: String, type: String, tripId: String, assignmentVersion: Int): Boolean
+
     // Ознакомление дедуплицируется по версии разнарядки: новая версия
     // требует нового Ознакомления (1С сбрасывает прежнее), старое не мешает.
     @Query(
@@ -85,7 +92,7 @@ interface PendingEventDao {
     @Query(
         "SELECT * FROM pending_events " +
             "WHERE assignmentId = :assignmentId AND tripId = :tripId AND type = :type " +
-            "AND sent = 0 AND cancelled = 0 LIMIT 1"
+            "AND sent = 0 AND cancelled = 0 ORDER BY time DESC LIMIT 1"
     )
     suspend fun findUnsent(assignmentId: String, tripId: String, type: String): PendingEventEntity?
 

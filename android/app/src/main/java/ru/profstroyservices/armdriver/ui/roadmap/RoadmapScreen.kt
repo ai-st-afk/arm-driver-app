@@ -331,6 +331,8 @@ private fun RoadmapList(
         }
         state.phase != AssignmentPhase.IN_SHIFT ->
             "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
+        state.trips.any { it.returnedAfterFailure && !it.isResolved } ->
+            "Рейс возвращён с новым адресом разгрузки. Проверьте адрес и выберите рейс в списке."
         // Рейсов не осталось (выполнены или сняты диспетчером), кнопка
         // «Закончить смену» уже видна ниже — 1С просит не прятать её и явно
         // предложить водителю закрыть смену, а не ждать диспетчера.
@@ -354,9 +356,12 @@ private fun RoadmapList(
             }
         }
         items(state.trips, key = { it.trip.id }) { progress ->
+            val selectedReturned = progress.returnedAfterFailure && progress.trip.id == expandedTripId
             TripRow(
                 state = progress,
-                isActive = progress.trip.id == state.activeTrip?.trip?.id,
+                isActive = selectedReturned ||
+                    (progress.trip.id == state.activeTrip?.trip?.id &&
+                        state.trips.none { it.returnedAfterFailure && it.trip.id == expandedTripId && !it.isResolved }),
                 unloadChanged = progress.trip.id in state.changedUnloadTripIds,
                 lockedHint = lockedHint,
                 expanded = progress.trip.id == expandedTripId,
@@ -502,7 +507,8 @@ private fun TripRow(
             CollapsedHeader(state = state, isActive = isActive)
             if (unloadChanged) {
                 Text(
-                    text = "Изменён адрес разгрузки: ${pointLabel(state.trip.unloadPoint)}",
+                    text = if (state.returnedAfterFailure) "Рейс возвращён: новый адрес ${pointLabel(state.trip.unloadPoint)}"
+                        else "Изменён адрес разгрузки: ${pointLabel(state.trip.unloadPoint)}",
                     color = MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.SemiBold
                 )

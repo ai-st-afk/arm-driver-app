@@ -124,7 +124,9 @@ class RoadmapViewModel @Inject constructor(
     fun onTripAction(trip: TripDto, type: String) {
         val state = markableState() ?: return
         val progress = state.trips.firstOrNull { it.trip.id == trip.id } ?: return
-        if (progress.isResolved || progress.trip.id != state.activeTrip?.trip?.id || progress.nextAction != type) return
+        if (progress.isResolved ||
+            (progress.trip.id != state.activeTrip?.trip?.id && !progress.returnedAfterFailure) ||
+            progress.nextAction != type) return
         viewModelScope.launch {
             val eventId = enqueue(state, type, trip.id) ?: return@launch
             emitFeedback(actionFeedbackText(type), eventId)
