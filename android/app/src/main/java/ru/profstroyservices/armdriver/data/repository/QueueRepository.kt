@@ -75,6 +75,11 @@ class QueueRepository @Inject constructor(
         if (failure != null) Log.e("QueueRepository", "Queue upload failed", failure)
         _networkError.value = failure?.userMessage()
     }
+
+    suspend fun retryRejected() {
+        events.resetRejections()
+        flush()
+    }
 }
 
 internal suspend fun flushQueues(

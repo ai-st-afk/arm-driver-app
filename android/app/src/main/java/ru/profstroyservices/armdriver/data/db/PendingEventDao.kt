@@ -16,8 +16,11 @@ interface PendingEventDao {
     fun observeAll(): Flow<List<PendingEventEntity>>
 
     // cancelled = 0: отменённый шаг не факт, отправлять в 1С нечего.
-    @Query("SELECT * FROM pending_events WHERE sent = 0 AND cancelled = 0 ORDER BY time")
+    @Query("SELECT * FROM pending_events WHERE sent = 0 AND cancelled = 0 AND lastError IS NULL ORDER BY time")
     suspend fun getUnsent(): List<PendingEventEntity>
+
+    @Query("UPDATE pending_events SET lastError = NULL WHERE sent = 0 AND cancelled = 0 AND lastError IS NOT NULL")
+    suspend fun resetRejections()
 
     @Query("DELETE FROM pending_events WHERE id = :id")
     suspend fun deleteById(id: String)

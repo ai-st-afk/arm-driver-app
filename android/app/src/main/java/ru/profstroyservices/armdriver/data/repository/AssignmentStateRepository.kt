@@ -45,12 +45,16 @@ class AssignmentStateRepository @Inject constructor(
             } else {
                 val decoded = cache.observeAllForDriver(driverId)
                     .distinctUntilChanged()
-                    .map { cached -> cached.map { it.toAssignmentDto() to it.updatedAt } }
+                    .map { cached -> cached.map { it.toAssignmentDto() to it } }
                 combine(decoded, events.observeAll().distinctUntilChanged()) { cached, allEvents ->
                     val byAssignment = allEvents.groupBy { it.assignmentId }
-                    cached.map { (assignment, updatedAt) ->
-                        assignmentState(assignment, byAssignment[assignment.id].orEmpty())
-                            .copy(updatedAt = updatedAt)
+                    cached.map { (assignment, entity) ->
+                        assignmentState(
+                            assignment,
+                            byAssignment[assignment.id].orEmpty(),
+                            entity.ackRequiredVersion.takeIf { it > 0 } ?: entity.version,
+                            entity.changedUnloadTripIds.split(',').filter { it.isNotBlank() }.toSet()
+                        ).copy(updatedAt = entity.updatedAt)
                     }
                 }
             }
@@ -72,7 +76,7 @@ class AssignmentStateRepository @Inject constructor(
                 assignments.refreshList(driverId).map { fresh ->
                     reacknowledgeTrivialVersionBumps(before, fresh, driverId)
                     val openShift = observeStates().first()
-                        .filter { it.phase == AssignmentPhase.IN_SHIFT }
+                        .filter { it.phase == AssignmentPhase.IN_SHIFT || it.phase == AssignmentPhase.FINISHED && !it.assignment.shiftClosed }
                         .map { it.id }
                     cache.deleteForDriverExcept(driverId, fresh.map { it.id } + openShift)
                 }

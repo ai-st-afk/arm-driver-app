@@ -132,9 +132,13 @@ fun AssignmentScreen(
         AlertDialog(
             onDismissRequest = { confirmEndShift = false },
             title = { Text("Закончить смену?") },
-            text = { Text("Смена по разнарядке № $label будет закончена. Отменить это нельзя.") },
+            text = { Text(if ((uiState as? AssignmentUiState.Content)?.state?.canEndShift == true) {
+                "Смена по разнарядке № $label будет завершена водителем. Затем сдайте ключи механику и пройдите осмотр у медика."
+            } else {
+                "Сначала по каждой невыполненной ездке во вкладке «Мои рейсы» нажмите «Не могу выполнить рейс» и укажите причину."
+            }) },
             confirmButton = {
-                Button(onClick = {
+                Button(enabled = (uiState as? AssignmentUiState.Content)?.state?.canEndShift == true, onClick = {
                     confirmEndShift = false
                     viewModel.onEndShift()
                 }) { Text("Закончить смену") }
@@ -168,7 +172,7 @@ fun statusLabel(state: AssignmentState): String = when (state.phase) {
     AssignmentPhase.NEW -> if (state.needsReacknowledge) "изменена" else "не принята"
     AssignmentPhase.ACCEPTED -> "принята"
     AssignmentPhase.IN_SHIFT -> if (state.cancelledByDispatcher) "отменена диспетчером" else "смена идёт"
-    AssignmentPhase.FINISHED -> "смена завершена"
+    AssignmentPhase.FINISHED -> if (state.assignment.shiftClosed) "смена закрыта" else "сдача смены"
     AssignmentPhase.CANCELLED -> "отменена диспетчером"
 }
 
@@ -310,6 +314,12 @@ private fun AssignmentContent(
         }
 
         AssignmentPhase.IN_SHIFT -> {
+            if (state.needsReacknowledge) {
+                Notice("Маршрут изменён. Проверьте ездки и подтвердите ознакомление заново.")
+                Button(onClick = onAcknowledge, modifier = Modifier.fillMaxWidth().height(ButtonHeight)) {
+                    Text("Ознакомлен")
+                }
+            }
             if (state.cancelledByDispatcher) {
                 Notice("Разнарядка отменена диспетчером.${reasonSuffix(state)} Закончите смену.")
             } else {
@@ -330,13 +340,9 @@ private fun AssignmentContent(
                     )
                 }
             }
-            // 1С: ОкончаниеСмены не привязано к рейсам, только к начатой
-            // смене. Пока рейсы не закрыты — кнопки нет: разгрузка без
-            // ОкончаниеСмены это нормально, а наоборот — нет (запись).
-            // Когда закрыты все (сами или диспетчером) — предлагаем сразу,
-            // не прячем: время с телефона 1С считает точнее вписанного
-            // диспетчером вручную.
-            if (state.canEndShift) {
+            // Кнопка видна и с незавершёнными рейсами, но подтверждение
+            // требует сначала отметить каждый такой рейс Срывом с причиной.
+            if (state.phase == AssignmentPhase.IN_SHIFT) {
                 Button(
                     onClick = onEndShift,
                     modifier = Modifier.fillMaxWidth().height(ButtonHeight)
@@ -344,16 +350,17 @@ private fun AssignmentContent(
                     Text("Закончить смену", style = MaterialTheme.typography.labelLarge)
                 }
             } else {
-                Text(
-                    text = "Рейсы — во вкладке «Мои рейсы». «Закончить смену» появится, когда все рейсы будут закрыты.",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Text(text = "Отметьте невыполненные рейсы во вкладке «Мои рейсы».")
             }
             CallDispatcherButton()
         }
 
         AssignmentPhase.FINISHED -> Text(
-            text = "Смена завершена. ${tripsProgressLabel(state)}",
+            text = when {
+                assignment.shiftClosed -> "Смена закрыта"
+                assignment.keysAccepted -> "Ключи сданы, пройдите осмотр у медика"
+                else -> "Смена завершена водителем. Сдайте ключи механику и пройдите осмотр у медика"
+            },
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold
         )
@@ -396,17 +403,22 @@ private fun UpcomingTrips(state: AssignmentState) {
                 )
                 if (progress.isCancelled) {
                     Text(
-                        text = "Ездка снята диспетчером",
+                        text = "Рейс отменён" + (trip.cancelReason?.let { ": $it" } ?: ""),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+                if (progress.isFailed) Text("Не выполнена" + (trip.cancelReason?.let { ": $it" } ?: ""))
+                if (progress.isInactive && !progress.isCancelled && !progress.isFailed) Text("Неактивна: ${trip.status}")
                 tripPlanLabel(trip.planLoad, trip.planUnload)?.let {
                     LabeledField(label = "Время по плану", value = it)
                 }
                 LabeledField(label = "Погрузка", value = pointLabel(trip.loadPoint))
                 LabeledField(label = "Разгрузка", value = pointLabel(trip.unloadPoint))
+                if (trip.id in state.changedUnloadTripIds) {
+                    Notice("Изменён адрес разгрузки: ${pointLabel(trip.unloadPoint)}")
+                }
                 trip.trailer.plate?.takeIf { it.isNotBlank() }?.let {
                     LabeledField(label = "Прицеп", value = it)
                 }

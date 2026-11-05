@@ -50,13 +50,13 @@ class MigrationTest {
     }
 
     @Test
-    fun pendingPhotoSurvivesUpgradeTo9() = runBlocking {
+    fun pendingPhotoSurvivesUpgradeTo10() = runBlocking {
         createVersion8()
 
         // Room сверяет схему после миграции с сущностями — ошибка в миграции
         // здесь упадёт так же, как упала бы у водителя при обновлении.
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_8_9)
+            .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
             .build()
         val photos = db.pendingPhotoDao().getPending()
         db.close()

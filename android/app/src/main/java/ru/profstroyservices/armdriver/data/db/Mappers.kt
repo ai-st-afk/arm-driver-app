@@ -14,7 +14,8 @@ fun EventRequest.toEntity(): PendingEventEntity = PendingEventEntity(
     assignmentId = assignmentId,
     tripId = tripId,
     time = time,
-    comment = comment
+    comment = comment,
+    reason = reason
 )
 
 fun PendingEventEntity.toEventRequest(): EventRequest = EventRequest(
@@ -25,6 +26,7 @@ fun PendingEventEntity.toEventRequest(): EventRequest = EventRequest(
     tripId = tripId,
     time = time,
     comment = comment,
+    reason = reason,
     geo = toGeoTagRequest()
 )
 

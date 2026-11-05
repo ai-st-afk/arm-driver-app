@@ -20,6 +20,6 @@ class QueueViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), QueueState())
 
     fun onRetry() {
-        viewModelScope.launch { queue.flush() }
+        viewModelScope.launch { queue.retryRejected() }
     }
 }

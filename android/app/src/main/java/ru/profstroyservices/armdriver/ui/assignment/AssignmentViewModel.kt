@@ -70,7 +70,9 @@ class AssignmentViewModel @Inject constructor(
         }
     }
 
-    fun onAcknowledge() = send(EventTypes.OZNAKOMLENIE) { it.phase == AssignmentPhase.NEW }
+    fun onAcknowledge() = send(EventTypes.OZNAKOMLENIE) {
+        it.phase == AssignmentPhase.NEW || it.phase == AssignmentPhase.IN_SHIFT && it.needsReacknowledge
+    }
 
     fun onStartShift() = send(EventTypes.NACHALO_SMENY) { it.canStartShift }
 

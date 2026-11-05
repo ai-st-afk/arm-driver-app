@@ -2,6 +2,7 @@ package ru.profstroyservices.armdriver.data.repository
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.profstroyservices.armdriver.data.db.toAssignmentDto
 import ru.profstroyservices.armdriver.data.db.toEntity
@@ -36,5 +37,23 @@ class AssignmentCacheTest {
         assertEquals(200L, result.updatedAt)
         assertEquals("trip", decoded.trips.single().id)
         assertEquals(STATUS_CANCELLED, decoded.trips.single().status)
+    }
+
+    @Test
+    fun `mechanic and medic flags do not require new acknowledgement`() {
+        val old = assignment.toEntity("driver", 100).copy(ackRequiredVersion = 2)
+        val fresh = assignment.copy(version = 3, keysAccepted = true, shiftClosed = true)
+        val result = updatedAssignment(fresh, old, "driver", 200)!!
+        assertEquals(2, result.ackRequiredVersion)
+    }
+
+    @Test
+    fun `cancelled trip requires acknowledgement and changed unload point is retained`() {
+        val old = assignment.toEntity("driver", 100).copy(ackRequiredVersion = 2)
+        val changed = assignment.trips.single().copy(status = STATUS_CANCELLED, cancelReason = "Клиент перенёс приёмку", unloadPoint = PointDto(address = "Окуни"))
+        val result = updatedAssignment(assignment.copy(version = 3, trips = listOf(changed)), old, "driver", 200)!!
+        assertEquals(3, result.ackRequiredVersion)
+        assertTrue("trip" in result.changedUnloadTripIds)
+        assertEquals("Клиент перенёс приёмку", result.toAssignmentDto().trips.single().cancelReason)
     }
 }

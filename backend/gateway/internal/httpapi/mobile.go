@@ -19,10 +19,14 @@ func assignmentToResponse(a assignmentXML) assignmentResponse {
 		PlanReturn:   a.PlanReturn,
 		// Старые разнарядки (до этого контракта) не несут элемент вообще —
 		// пустая строка, EqualFold с "true" даёт false, как и просил механик.
-		KeysIssued:   strings.EqualFold(a.KeysIssued, "true"),
-		KeysIssuedAt: a.KeysIssuedAt,
-		Trips:        a.Trips,
-		ShiftTotal:   a.ShiftTotal,
+		KeysIssued:     strings.EqualFold(a.KeysIssued, "true"),
+		KeysIssuedAt:   a.KeysIssuedAt,
+		KeysAccepted:   strings.EqualFold(a.KeysAccepted, "true"),
+		KeysAcceptedAt: a.KeysAcceptedAt,
+		ShiftClosed:    strings.EqualFold(a.ShiftClosed, "true"),
+		ShiftClosedAt:  a.ShiftClosedAt,
+		Trips:          a.Trips,
+		ShiftTotal:     a.ShiftTotal,
 	}
 }
 
@@ -37,6 +41,7 @@ func eventsRequestToXML(req eventsRequest) eventsXML {
 			TripID:     event.TripID,
 			Time:       event.Time,
 			Comment:    event.Comment,
+			Reason:     event.Reason,
 			GeoTag:     geoTagRequestToXML(event.GeoTag),
 		})
 	}

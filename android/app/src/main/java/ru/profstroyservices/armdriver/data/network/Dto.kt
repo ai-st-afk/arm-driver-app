@@ -78,6 +78,7 @@ data class TripDto(
     val id: String,
     val order: Int,
     val status: String,
+    @SerialName("cancel_reason") val cancelReason: String? = null,
     val customer: String? = null,
     val trailer: TrailerDto = TrailerDto(),
     @SerialName("load_point") val loadPoint: PointDto,
@@ -105,6 +106,10 @@ data class AssignmentDto(
     // Старый кэш/разнарядки без этого контракта — default false, не true.
     @SerialName("keys_issued") val keysIssued: Boolean = false,
     @SerialName("keys_issued_at") val keysIssuedAt: String? = null,
+    @SerialName("keys_accepted") val keysAccepted: Boolean = false,
+    @SerialName("keys_accepted_at") val keysAcceptedAt: String? = null,
+    @SerialName("shift_closed") val shiftClosed: Boolean = false,
+    @SerialName("shift_closed_at") val shiftClosedAt: String? = null,
     val trips: List<TripDto> = emptyList(),
     @SerialName("shift_total") val shiftTotal: CargoTotalDto? = null
 )
@@ -135,6 +140,7 @@ data class EventRequest(
     @SerialName("trip_id") val tripId: String? = null,
     val time: String,
     val comment: String = "",
+    val reason: String? = null,
     val geo: GeoTagRequest? = null
 )
 

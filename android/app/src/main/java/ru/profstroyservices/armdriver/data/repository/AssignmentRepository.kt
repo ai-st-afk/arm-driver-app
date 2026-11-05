@@ -78,5 +78,32 @@ internal fun updatedAssignment(
     val vanished = previous?.toAssignmentDto()?.trips.orEmpty()
         .filter { it.id !in freshIds }
         .map { it.copy(status = STATUS_CANCELLED) }
-    return assignment.copy(trips = assignment.trips + vanished).toEntity(driverId, updatedAt)
+    val old = previous?.toAssignmentDto()
+    val cancelledNow = assignment.trips.any { trip ->
+        trip.status == STATUS_CANCELLED && old?.trips?.firstOrNull { it.id == trip.id }?.status != STATUS_CANCELLED
+    }
+    val routeChanged = old != null && old.copy(
+        version = assignment.version,
+        keysIssued = assignment.keysIssued,
+        keysIssuedAt = assignment.keysIssuedAt,
+        keysAccepted = assignment.keysAccepted,
+        keysAcceptedAt = assignment.keysAcceptedAt,
+        shiftClosed = assignment.shiftClosed,
+        shiftClosedAt = assignment.shiftClosedAt
+    ) != assignment
+    val ackRequired = when {
+        old == null -> assignment.version
+        cancelledNow || routeChanged -> assignment.version
+        else -> previous.ackRequiredVersion.takeIf { it > 0 } ?: previous.version
+    }
+    val changedUnload = assignment.trips.filter { trip ->
+        old?.trips?.firstOrNull { it.id == trip.id }?.unloadPoint?.let { it != trip.unloadPoint } == true
+    }.map { it.id }
+    val visibleUnloadChanges = (changedUnload + previous?.changedUnloadTripIds.orEmpty().split(','))
+        .filter { id -> id.isNotBlank() && assignment.trips.any { it.id == id } }
+        .distinct()
+    return assignment.copy(trips = assignment.trips + vanished).toEntity(driverId, updatedAt).copy(
+        ackRequiredVersion = ackRequired,
+        changedUnloadTripIds = visibleUnloadChanges.joinToString(",")
+    )
 }

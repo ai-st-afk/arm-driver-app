@@ -6,11 +6,12 @@ import ru.profstroyservices.armdriver.data.network.TripDto
 import java.time.OffsetDateTime
 
 const val STATUS_CANCELLED = "Отменена"
+const val STATUS_ASSIGNED = "Назначена"
+const val STATUS_FAILED = "Сорвана"
 
 // Разнарядка = смена: у каждой свои Ознакомление → НачалоСмены →
-// ОкончаниеСмены (события уровня разнарядки, AGENTS.md). Отменить
-// разнарядку или рейс водитель сам не может — это делает диспетчер в 1С,
-// приложение только принимает новую версию.
+// ОкончаниеСмены (события уровня разнарядки, AGENTS.md). Отмену делает
+// диспетчер в 1С; водитель отдельно отмечает невыполнимую ездку Срывом.
 enum class AssignmentPhase {
     NEW,
     ACCEPTED,
@@ -21,15 +22,16 @@ enum class AssignmentPhase {
     CANCELLED
 }
 
-data class TripProgress(val trip: TripDto, val doneTypes: Set<String>) {
+data class TripProgress(val trip: TripDto, val doneTypes: Set<String>, val failureSent: Boolean = false) {
     val isCancelled: Boolean get() = trip.status.equals(STATUS_CANCELLED, ignoreCase = true)
+    val isInactive: Boolean get() = !trip.status.equals(STATUS_ASSIGNED, ignoreCase = true) &&
+        !trip.status.equals("Активна", ignoreCase = true)
     val isCompleted: Boolean get() = EventTypes.RAZGRUZILSYA in doneTypes
-    // Срыв водитель больше не отправляет (решает диспетчер), но события из
-    // прежних версий приложения ещё могут лежать в базе.
-    val isFailed: Boolean get() = EventTypes.SRYV in doneTypes
+    val isFailed: Boolean get() = trip.status.equals(STATUS_FAILED, ignoreCase = true) || failureSent
+    val isFailurePending: Boolean get() = !isFailed && EventTypes.SRYV in doneTypes
     // Снятый диспетчером рейс закрыт, даже если по нему уже были отметки —
     // так 1С снимает незавершённые рейсы при замене экипажа.
-    val isResolved: Boolean get() = isCancelled || isCompleted || isFailed
+    val isResolved: Boolean get() = isInactive || isCompleted || isFailed || isFailurePending
     val nextAction: String? get() = if (isResolved) null else EventTypes.TRIP_CYCLE.firstOrNull { it !in doneTypes }
 }
 
@@ -41,6 +43,7 @@ data class AssignmentState(
     // Ознакомление было, но по прежней версии: 1С сбросила его, без нового
     // она отобьёт НачалоСмены («Смена начата без ознакомления с маршрутом»).
     val needsReacknowledge: Boolean,
+    val changedUnloadTripIds: Set<String> = emptySet(),
     // Хотя бы один рейс снят диспетчером (замена экипажа и т.п.) — просто
     // для текста на экране, на кнопку «Закончить смену» не влияет (см. ниже).
     val hasTripsCancelledByDispatcher: Boolean = false,
@@ -53,31 +56,40 @@ data class AssignmentState(
     val tripsResolved: Int get() = trips.count { it.isResolved }
     val allTripsResolved: Boolean get() = cancelledByDispatcher || trips.all { it.isResolved }
     val activeTrip: TripProgress? get() = if (cancelledByDispatcher) null else trips.firstOrNull { !it.isResolved }
-    // Закончить смену можно только когда работы не осталось: все рейсы
-    // выполнены или сняты диспетчером. Досрочно — только через диспетчера.
-    val canEndShift: Boolean get() = phase == AssignmentPhase.IN_SHIFT && allTripsResolved
+    // Перед окончанием смены каждая назначенная ездка должна быть выполнена
+    // или отмечена Срывом; отменённые диспетчером тоже не блокируют.
+    val canEndShift: Boolean get() = phase == AssignmentPhase.IN_SHIFT && allTripsResolved && !needsReacknowledge
     val canMarkTrips: Boolean get() = phase == AssignmentPhase.IN_SHIFT && !cancelledByDispatcher
     // Механик ещё не выдал ключи своим АРМ — "Начать смену" недоступна,
     // даже если разнарядка принята (нововведение 2026-10-13).
     val canStartShift: Boolean get() = phase == AssignmentPhase.ACCEPTED && assignment.keysIssued
 }
 
-fun assignmentState(assignment: AssignmentDto, events: List<PendingEventEntity>): AssignmentState {
-    val active = events.filter { it.assignmentId == assignment.id && !it.cancelled }
+fun assignmentState(
+    assignment: AssignmentDto,
+    events: List<PendingEventEntity>,
+    ackRequiredVersion: Int = assignment.version,
+    changedUnloadTripIds: Set<String> = emptySet()
+): AssignmentState {
+    val active = events.filter { it.assignmentId == assignment.id && !it.cancelled && it.lastError == null }
     fun has(type: String) = active.any { it.type == type }
 
     val acks = active.filter { it.type == EventTypes.OZNAKOMLENIE }
     // null — Ознакомление записано до того, как стали хранить версию;
     // считаем его действительным, чтобы не заставлять переподтверждать всё
     // после обновления приложения.
-    val ackCurrent = acks.any { it.assignmentVersion == null || it.assignmentVersion >= assignment.version }
+    val ackCurrent = acks.any { it.assignmentVersion == null || it.assignmentVersion >= ackRequiredVersion }
     val cancelled = assignment.status.equals(STATUS_CANCELLED, ignoreCase = true)
 
     val trips = assignment.trips
         .sortedBy { it.order }
-        .map { trip -> TripProgress(trip, active.filter { it.tripId == trip.id }.map { it.type }.toSet()) }
+        .map { trip ->
+            val tripEvents = active.filter { it.tripId == trip.id }
+            TripProgress(trip, tripEvents.map { it.type }.toSet(), tripEvents.any { it.type == EventTypes.SRYV && it.sent })
+        }
 
     val phase = when {
+        assignment.shiftClosed -> AssignmentPhase.FINISHED
         has(EventTypes.OKONCHANIE_SMENY) -> AssignmentPhase.FINISHED
         has(EventTypes.NACHALO_SMENY) -> AssignmentPhase.IN_SHIFT
         cancelled -> AssignmentPhase.CANCELLED
@@ -93,7 +105,8 @@ fun assignmentState(assignment: AssignmentDto, events: List<PendingEventEntity>)
         phase = phase,
         trips = trips,
         shiftStartedAt = shiftStartedAt,
-        needsReacknowledge = phase == AssignmentPhase.NEW && acks.isNotEmpty(),
+        needsReacknowledge = !ackCurrent && acks.isNotEmpty(),
+        changedUnloadTripIds = changedUnloadTripIds,
         hasTripsCancelledByDispatcher = trips.any { it.isCancelled }
     )
 }
@@ -106,6 +119,8 @@ fun assignmentState(assignment: AssignmentDto, events: List<PendingEventEntity>)
 fun currentAssignment(states: List<AssignmentState>): AssignmentState? =
     states.filter { it.phase == AssignmentPhase.IN_SHIFT }
         .maxWithOrNull(compareBy({ it.shiftStartedAt ?: OffsetDateTime.MIN }, { it.id }))
+        ?: states.filter { it.phase == AssignmentPhase.FINISHED && !it.assignment.shiftClosed }
+            .maxWithOrNull(compareBy({ it.assignment.departureDay }, { it.id }))
         ?: states
             .filter { it.phase == AssignmentPhase.NEW || it.phase == AssignmentPhase.ACCEPTED }
             .minWithOrNull(compareBy({ it.assignment.departureDay }, { it.label }, { it.id }))

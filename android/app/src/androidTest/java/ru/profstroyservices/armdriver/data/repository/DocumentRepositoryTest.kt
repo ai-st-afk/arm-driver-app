@@ -18,6 +18,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import ru.profstroyservices.armdriver.data.db.AppDatabase
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
+import ru.profstroyservices.armdriver.data.network.AppReleaseDto
 import ru.profstroyservices.armdriver.data.network.AssignmentsListResponse
 import ru.profstroyservices.armdriver.data.network.DeviceRequest
 import ru.profstroyservices.armdriver.data.network.DeviceResponse
@@ -148,5 +149,6 @@ class DocumentRepositoryTest {
         override suspend fun registerDevice(request: DeviceRequest): DeviceResponse = error("not used")
         override suspend fun sendEvents(request: EventsRequest): EventsResponse = error("not used")
         override suspend fun getDriver(id: String): DriverDto = error("not used")
+        override suspend fun latestApp(): AppReleaseDto = error("not used")
     }
 }

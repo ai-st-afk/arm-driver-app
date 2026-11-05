@@ -17,12 +17,16 @@ type assignmentXML struct {
 	// откажется парсить, если 1С отдаст регистр/формат не строго "true"/
 	// "false". Старые разнарядки без этого элемента — пустая строка,
 	// что ниже превращается в false (механик ключи не выдавал).
-	KeysIssued   string         `xml:"КлючиВыданы"`
-	KeysIssuedAt string         `xml:"ВремяВыдачиКлючей"`
-	Driver       personXML      `xml:"Водитель"`
-	Vehicle      vehicleXML     `xml:"Машина"`
-	Trips        []tripXML      `xml:"Ездки>Ездка"`
-	ShiftTotal   *cargoTotalXML `xml:"ИтогоЗаСмену"`
+	KeysIssued     string         `xml:"КлючиВыданы"`
+	KeysIssuedAt   string         `xml:"ВремяВыдачиКлючей"`
+	KeysAccepted   string         `xml:"КлючиПриняты"`
+	KeysAcceptedAt string         `xml:"ВремяПриемаКлючей"`
+	ShiftClosed    string         `xml:"СменаЗакрыта"`
+	ShiftClosedAt  string         `xml:"ВремяЗакрытияСмены"`
+	Driver         personXML      `xml:"Водитель"`
+	Vehicle        vehicleXML     `xml:"Машина"`
+	Trips          []tripXML      `xml:"Ездки>Ездка"`
+	ShiftTotal     *cargoTotalXML `xml:"ИтогоЗаСмену"`
 }
 
 type personXML struct {
@@ -90,17 +94,18 @@ type contactPhoneXML struct {
 }
 
 type tripXML struct {
-	ID          string           `xml:"Идентификатор" json:"id"`
-	Order       int              `xml:"Порядок" json:"order"`
-	Status      string           `xml:"Статус" json:"status"`
-	Customer    string           `xml:"Заказчик" json:"customer,omitempty"`
-	Trailer     trailerXML       `xml:"Прицеп" json:"trailer,omitempty"`
-	LoadPoint   pointXML         `xml:"ПунктПогрузки" json:"load_point"`
-	UnloadPoint pointXML         `xml:"ПунктРазгрузки" json:"unload_point"`
-	PlanLoad    string           `xml:"ПланПогрузки" json:"plan_load,omitempty"`
-	PlanUnload  string           `xml:"ПланРазгрузки" json:"plan_unload,omitempty"`
-	Cargo       cargoXML         `xml:"Груз" json:"cargo"`
-	Contacts    []tripContactXML `xml:"Контакты>Контакт" json:"contacts,omitempty"`
+	ID           string           `xml:"Идентификатор" json:"id"`
+	Order        int              `xml:"Порядок" json:"order"`
+	Status       string           `xml:"Статус" json:"status"`
+	CancelReason string           `xml:"ПричинаОтмены" json:"cancel_reason,omitempty"`
+	Customer     string           `xml:"Заказчик" json:"customer,omitempty"`
+	Trailer      trailerXML       `xml:"Прицеп" json:"trailer,omitempty"`
+	LoadPoint    pointXML         `xml:"ПунктПогрузки" json:"load_point"`
+	UnloadPoint  pointXML         `xml:"ПунктРазгрузки" json:"unload_point"`
+	PlanLoad     string           `xml:"ПланПогрузки" json:"plan_load,omitempty"`
+	PlanUnload   string           `xml:"ПланРазгрузки" json:"plan_unload,omitempty"`
+	Cargo        cargoXML         `xml:"Груз" json:"cargo"`
+	Contacts     []tripContactXML `xml:"Контакты>Контакт" json:"contacts,omitempty"`
 }
 
 type eventsXML struct {
@@ -116,6 +121,7 @@ type eventXML struct {
 	TripID     string     `xml:"Ездка"`
 	Time       string     `xml:"Время"`
 	Comment    string     `xml:"Комментарий"`
+	Reason     string     `xml:"Причина,omitempty"`
 	GeoTag     *geoTagXML `xml:"Геометка,omitempty"`
 }
 
@@ -186,10 +192,14 @@ type assignmentResponse struct {
 	PlanReturn   string     `json:"plan_return,omitempty"`
 	// Механик выдал ключи — своим АРМ, отдельно от диспетчера. Без этого
 	// "Начать смену" на телефоне недоступна (см. AGENTS.md).
-	KeysIssued   bool           `json:"keys_issued"`
-	KeysIssuedAt string         `json:"keys_issued_at,omitempty"`
-	Trips        []tripXML      `json:"trips"`
-	ShiftTotal   *cargoTotalXML `json:"shift_total,omitempty"`
+	KeysIssued     bool           `json:"keys_issued"`
+	KeysIssuedAt   string         `json:"keys_issued_at,omitempty"`
+	KeysAccepted   bool           `json:"keys_accepted"`
+	KeysAcceptedAt string         `json:"keys_accepted_at,omitempty"`
+	ShiftClosed    bool           `json:"shift_closed"`
+	ShiftClosedAt  string         `json:"shift_closed_at,omitempty"`
+	Trips          []tripXML      `json:"trips"`
+	ShiftTotal     *cargoTotalXML `json:"shift_total,omitempty"`
 }
 
 type eventsRequest struct {
@@ -204,6 +214,7 @@ type eventRequest struct {
 	TripID       string         `json:"trip_id,omitempty"`
 	Time         string         `json:"time"`
 	Comment      string         `json:"comment,omitempty"`
+	Reason       string         `json:"reason,omitempty"`
 	GeoTag       *geoTagRequest `json:"geo,omitempty"`
 }
 

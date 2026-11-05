@@ -64,11 +64,24 @@ echo "собрано: $OUT/$APK ($VERSION_NAME, код $VERSION_CODE, $((SIZE / 
 : "${ARM_DRIVER_SERVER:?укажите ARM_DRIVER_SERVER=user@host}"
 
 SSH=(ssh)
-SCP=(scp -q)
+SCP=(scp -O -q)
+# Отдельный ключ этого проекта, если он не загружен в ssh-agent.
+if [ -n "${ARM_DRIVER_SSH_KEY_FILE:-}" ]; then
+  SSH+=( -i "$ARM_DRIVER_SSH_KEY_FILE" )
+  SCP+=( -i "$ARM_DRIVER_SSH_KEY_FILE" )
+fi
+if [ -n "${ARM_DRIVER_SSH_INTERFACE:-}" ]; then
+  SSH+=( -o "BindInterface=$ARM_DRIVER_SSH_INTERFACE" )
+  SCP+=( -o "BindInterface=$ARM_DRIVER_SSH_INTERFACE" )
+fi
 # scp, не rsync: под sshpass rsync падает на setpgid.
 if [ -n "${ARM_DRIVER_SSH_PASS_FILE:-}" ]; then
   SSH=(sshpass -f "$ARM_DRIVER_SSH_PASS_FILE" ssh)
-  SCP=(sshpass -f "$ARM_DRIVER_SSH_PASS_FILE" scp -q)
+  SCP=(sshpass -f "$ARM_DRIVER_SSH_PASS_FILE" scp -O -q)
+fi
+if [ -n "${ARM_DRIVER_SSH_PROXY_COMMAND:-}" ]; then
+  SSH+=( -o "ProxyCommand=$ARM_DRIVER_SSH_PROXY_COMMAND" )
+  SCP+=( -o "ProxyCommand=$ARM_DRIVER_SSH_PROXY_COMMAND" )
 fi
 
 "${SSH[@]}" "$ARM_DRIVER_SERVER" "mkdir -p ~/$REMOTE_DIR"
@@ -76,10 +89,9 @@ fi
 "${SCP[@]}" "$OUT/latest.json" "$ARM_DRIVER_SERVER:$REMOTE_DIR/.latest.json.tmp"
 # Залитое под временными именами подменяется переименованием — атомарно.
 # Сначала файл, потом манифест: телефон не должен увидеть версию раньше,
-# чем её можно скачать. Три последние версии остаются — на случай отката.
+# чем её можно скачать. Старые APK остаются для отката.
 "${SSH[@]}" "$ARM_DRIVER_SERVER" "cd ~/$REMOTE_DIR && chmod 644 .$APK.tmp .latest.json.tmp \
-  && mv .$APK.tmp $APK && mv .latest.json.tmp latest.json \
-  && ls -t arm-driver-*.apk | tail -n +4 | xargs -r rm -f"
+  && mv .$APK.tmp $APK && mv .latest.json.tmp latest.json"
 # Тот же файл — для ручной установки на новый телефон.
 mkdir -p "$HOME/Desktop/arm-driver-apk"
 cp "$OUT/$APK" "$HOME/Desktop/arm-driver-apk/arm-driver-v$VERSION_NAME.apk"

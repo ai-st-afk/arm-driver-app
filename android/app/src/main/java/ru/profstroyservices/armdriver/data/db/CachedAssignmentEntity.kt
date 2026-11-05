@@ -17,5 +17,7 @@ data class CachedAssignmentEntity(
     val driverId: String,
     val assignmentJson: String,
     val version: Int,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val ackRequiredVersion: Int = 0,
+    val changedUnloadTripIds: String = ""
 )

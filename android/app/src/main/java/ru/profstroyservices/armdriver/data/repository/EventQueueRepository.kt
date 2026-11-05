@@ -30,6 +30,8 @@ class EventQueueRepository @Inject constructor(
 
     fun observeLastRejected(): Flow<PendingEventEntity?> = dao.observeLastRejected()
 
+    suspend fun resetRejections() = dao.resetRejections()
+
     // GUID генерируется на телефоне в момент события (инвариант из AGENTS.md),
     // не при последующей отправке. Повторный вызов для уже записанного
     // события (assignmentId+type+tripId) не создаёт второй GUID.
@@ -41,7 +43,8 @@ class EventQueueRepository @Inject constructor(
         assignmentId: String,
         assignmentVersion: Int,
         tripId: String? = null,
-        comment: String = ""
+        comment: String = "",
+        reason: String? = null
     ): String? {
         val duplicate = if (type == EventTypes.OZNAKOMLENIE) {
             dao.existsForVersion(assignmentId, type, assignmentVersion)
@@ -64,6 +67,7 @@ class EventQueueRepository @Inject constructor(
                 tripId = tripId,
                 time = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                 comment = comment,
+                reason = reason,
                 assignmentVersion = assignmentVersion,
                 latitude = geoFix?.latitude,
                 longitude = geoFix?.longitude,

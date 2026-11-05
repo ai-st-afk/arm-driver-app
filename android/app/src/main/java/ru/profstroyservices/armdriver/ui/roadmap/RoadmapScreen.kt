@@ -115,6 +115,7 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     var expandedTripId by remember { mutableStateOf<String?>(null) }
     var confirmEndShift by remember { mutableStateOf(false) }
+    var failureTripId by rememberSaveable { mutableStateOf<String?>(null) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshFromNetwork() }
 
@@ -219,6 +220,7 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
                         }
                     },
                     onStepBack = viewModel::onStepBack,
+                    onFailure = { failureTripId = it },
                     onEndShift = { confirmEndShift = true }
                 )
             }
@@ -229,15 +231,29 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
         AlertDialog(
             onDismissRequest = { confirmEndShift = false },
             title = { Text("Закончить смену?") },
-            text = { Text("Смена по разнарядке № ${content?.label} будет закончена. Отменить это нельзя.") },
+            text = { Text(if (content?.canEndShift == true) {
+                "Смена по разнарядке № ${content.label} будет завершена водителем. Затем сдайте ключи механику и пройдите осмотр у медика."
+            } else {
+                "Сначала по каждой невыполненной ездке нажмите «Не могу выполнить рейс» и укажите причину."
+            }) },
             confirmButton = {
-                Button(onClick = {
+                Button(enabled = content?.canEndShift == true, onClick = {
                     confirmEndShift = false
                     viewModel.onEndShift()
                 }) { Text("Закончить смену") }
             },
             dismissButton = {
                 OutlinedButton(onClick = { confirmEndShift = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    failureTripId?.let { tripId ->
+        TripFailureDialog(
+            onDismiss = { failureTripId = null },
+            onConfirm = { reason ->
+                failureTripId = null
+                viewModel.onTripFailure(tripId, reason)
             }
         )
     }
@@ -301,13 +317,18 @@ private fun RoadmapList(
     onToggle: (String) -> Unit,
     onAction: (TripDto, String) -> Unit,
     onStepBack: (TripDto) -> Unit,
+    onFailure: (String) -> Unit,
     onEndShift: () -> Unit
 ) {
     val banner = when {
         state.cancelledByDispatcher && state.phase == AssignmentPhase.IN_SHIFT ->
             "Разнарядка отменена диспетчером. Закончите смену."
         state.cancelledByDispatcher -> "Разнарядка отменена диспетчером."
-        state.phase == AssignmentPhase.FINISHED -> "Смена по этой разнарядке закончена."
+        state.phase == AssignmentPhase.FINISHED -> when {
+            state.assignment.shiftClosed -> "Смена закрыта"
+            state.assignment.keysAccepted -> "Ключи сданы, пройдите осмотр у медика"
+            else -> "Смена завершена водителем. Сдайте ключи механику и пройдите осмотр у медика"
+        }
         state.phase != AssignmentPhase.IN_SHIFT ->
             "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
         // Рейсов не осталось (выполнены или сняты диспетчером), кнопка
@@ -336,17 +357,18 @@ private fun RoadmapList(
             TripRow(
                 state = progress,
                 isActive = progress.trip.id == state.activeTrip?.trip?.id,
+                unloadChanged = progress.trip.id in state.changedUnloadTripIds,
                 lockedHint = lockedHint,
                 expanded = progress.trip.id == expandedTripId,
                 onToggle = { onToggle(progress.trip.id) },
                 onAction = { type -> onAction(progress.trip, type) },
-                onStepBack = { onStepBack(progress.trip) }
+                onStepBack = { onStepBack(progress.trip) },
+                onFailure = { onFailure(progress.trip.id) }
             )
         }
-        // Смену заканчивают руками, когда работы не осталось: все рейсы
-        // выполнены или сняты диспетчером (конец смены — отдельный факт от
-        // последней разгрузки, AGENTS.md).
-        if (state.canEndShift) {
+        // Конец смены — отдельный факт от разгрузки. Невыполненные
+        // назначенные ездки сначала отмечаются Срывом с причиной.
+        if (state.phase == AssignmentPhase.IN_SHIFT) {
             item(key = "end_shift") {
                 Button(
                     onClick = onEndShift,
@@ -420,16 +442,46 @@ private fun MissingPhotosDialog(
 }
 
 @Composable
+private fun TripFailureDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var reason by rememberSaveable { mutableStateOf("") }
+    val choices = listOf("Поломка машины", "Клиент не принимает", "Нет подъезда", "Груз не помещается", "Другое")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Не могу выполнить рейс") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Выберите причину или напишите свою. Рейс останется в списке как невыполненный.")
+                choices.forEach { choice ->
+                    TextButton(onClick = { reason = if (choice == "Другое") "" else choice }) { Text(choice) }
+                }
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it.take(200) },
+                    label = { Text("Причина (обязательно)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(reason.trim()) }, enabled = reason.isNotBlank()) { Text("Подтвердить") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
+}
+
+@Composable
 private fun TripRow(
     state: TripProgress,
     isActive: Boolean,
+    unloadChanged: Boolean,
     // Не null — отмечать этапы сейчас нельзя (смена не начата, закончена
     // или разнарядка отменена).
     lockedHint: String?,
     expanded: Boolean,
     onToggle: () -> Unit,
     onAction: (String) -> Unit,
-    onStepBack: () -> Unit
+    onStepBack: () -> Unit,
+    onFailure: () -> Unit
 ) {
     val activeColor = statusActiveColor()
 
@@ -448,6 +500,13 @@ private fun TripRow(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             CollapsedHeader(state = state, isActive = isActive)
+            if (unloadChanged) {
+                Text(
+                    text = "Изменён адрес разгрузки: ${pointLabel(state.trip.unloadPoint)}",
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
             state.trip.trailer.plate?.takeIf { it.isNotBlank() }?.let {
                 LabeledField(label = "Прицеп", value = it)
             }
@@ -462,7 +521,8 @@ private fun TripRow(
                     isActive = isActive,
                     lockedHint = lockedHint,
                     onAction = onAction,
-                    onStepBack = onStepBack
+                    onStepBack = onStepBack,
+                    onFailure = onFailure
                 )
             }
         }
@@ -473,7 +533,7 @@ private fun TripRow(
 private fun CollapsedHeader(state: TripProgress, isActive: Boolean) {
     val trip = state.trip
     val activeColor = statusActiveColor()
-    val failed = state.isCancelled || state.isFailed
+    val failed = state.isCancelled || state.isFailed || state.isFailurePending || state.isInactive
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         // Точка маршрута: выполненный — галочка, снятый — крестик, активный —
@@ -526,7 +586,8 @@ private fun ExpandedDetails(
     isActive: Boolean,
     lockedHint: String?,
     onAction: (String) -> Unit,
-    onStepBack: () -> Unit
+    onStepBack: () -> Unit,
+    onFailure: () -> Unit
 ) {
     val trip = state.trip
 
@@ -541,7 +602,7 @@ private fun ExpandedDetails(
         // Снят диспетчером — даже если по нему уже были отметки (так 1С
         // снимает незавершённые рейсы при замене экипажа).
         state.isCancelled -> {
-            Text(text = "Рейс снят диспетчером", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+            Text(text = "Рейс отменён" + (trip.cancelReason?.let { ": $it" } ?: ""), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
             return
         }
         state.isCompleted -> {
@@ -549,7 +610,15 @@ private fun ExpandedDetails(
             return
         }
         state.isFailed -> {
-            Text(text = "Рейс сорван", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+            Text(text = "Не выполнена" + (trip.cancelReason?.let { ": $it" } ?: ""), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+            return
+        }
+        state.isFailurePending -> {
+            Text("Отказ записан, ожидает отправки", color = MaterialTheme.colorScheme.error)
+            return
+        }
+        state.isInactive -> {
+            Text(text = "Рейс неактивен: ${trip.status}", color = MaterialTheme.colorScheme.error)
             return
         }
     }
@@ -564,6 +633,9 @@ private fun ExpandedDetails(
     // nextAction сам по себе не знает про соседние рейсы, до этого фикса
     // «Прибыл на погрузку» у второго рейса было можно нажать, не закрыв
     // первый.
+    OutlinedButton(onClick = onFailure, modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)) {
+        Text("Не могу выполнить рейс", style = MaterialTheme.typography.labelLarge)
+    }
     if (!isActive) {
         Text(
             text = "Рейс станет доступен, когда закроется текущий.",
@@ -619,15 +691,17 @@ private fun planTimeLabel(trip: TripDto): String? {
 
 private fun tripStatusLabel(state: TripProgress, isActive: Boolean): String = when {
     state.isCancelled -> "снят"
-    state.isCompleted -> "выполнен"
     state.isFailed -> "сорван"
+    state.isFailurePending -> "ожидает отправки"
+    state.isInactive -> "неактивен"
+    state.isCompleted -> "выполнен"
     isActive -> "сейчас"
     else -> "ожидает"
 }
 
 @Composable
 private fun tripStatusColor(state: TripProgress, isActive: Boolean, activeColor: Color): Color = when {
-    state.isCancelled || state.isFailed -> MaterialTheme.colorScheme.error
+    state.isCancelled || state.isFailed || state.isFailurePending || state.isInactive -> MaterialTheme.colorScheme.error
     state.isCompleted -> CompletedGreen
     isActive -> activeColor
     else -> MaterialTheme.colorScheme.onSurfaceVariant

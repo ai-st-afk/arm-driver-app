@@ -123,10 +123,25 @@ class RoadmapViewModel @Inject constructor(
 
     fun onTripAction(trip: TripDto, type: String) {
         val state = markableState() ?: return
+        val progress = state.trips.firstOrNull { it.trip.id == trip.id } ?: return
+        if (progress.isResolved || progress.trip.id != state.activeTrip?.trip?.id || progress.nextAction != type) return
         viewModelScope.launch {
             val eventId = enqueue(state, type, trip.id) ?: return@launch
             emitFeedback(actionFeedbackText(type), eventId)
             scheduleFlush()
+        }
+    }
+
+    fun onTripFailure(tripId: String, reason: String) {
+        val state = markableState() ?: return
+        val progress = state.trips.firstOrNull { it.trip.id == tripId } ?: return
+        val cleanReason = reason.trim()
+        if (progress.isResolved || progress.isInactive || cleanReason.isEmpty() || cleanReason.length > 200) return
+        viewModelScope.launch {
+            enqueue(state, EventTypes.SRYV, tripId, reason = cleanReason) ?: return@launch
+            emitFeedback("Не могу выполнить рейс", null)
+            flushJob?.cancel()
+            queue.flush()
         }
     }
 
@@ -181,7 +196,7 @@ class RoadmapViewModel @Inject constructor(
     // карточке, вместе с фото (см. onStepBack).
     fun onStepPhotos(tripId: String, type: String, photos: List<CapturedPhoto>, missingReason: String? = null) {
         val state = markableState()
-        if (state == null || state.trips.none { it.trip.id == tripId }) {
+        if (state == null || state.activeTrip?.trip?.id != tripId || state.activeTrip?.nextAction != type) {
             photos.forEach { File(it.path).delete() }
             return
         }
@@ -214,7 +229,7 @@ class RoadmapViewModel @Inject constructor(
         }
     }
 
-    private suspend fun enqueue(state: AssignmentState, type: String, tripId: String?, comment: String = ""): String? {
+    private suspend fun enqueue(state: AssignmentState, type: String, tripId: String?, comment: String = "", reason: String? = null): String? {
         val driverId = settings.driverId.first() ?: return null
         return eventQueue.enqueue(
             type = type,
@@ -222,7 +237,8 @@ class RoadmapViewModel @Inject constructor(
             assignmentId = state.id,
             assignmentVersion = state.assignment.version,
             tripId = tripId,
-            comment = comment
+            comment = comment,
+            reason = reason
         )
     }
 

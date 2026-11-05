@@ -184,12 +184,41 @@ class AssignmentStateTest {
     }
 
     @Test
+    fun failedTripFromEventUnblocksNextTripOffline() {
+        val state = assignmentState(
+            assignment("A"),
+            listOf(event("A", EventTypes.OZNAKOMLENIE), event("A", EventTypes.NACHALO_SMENY), event("A", EventTypes.SRYV, "A-t1"))
+        )
+        assertTrue(state.trips.first().isFailurePending)
+        assertEquals("A-t2", state.activeTrip?.trip?.id)
+    }
+
+    @Test
+    fun unknownAndFailedStatusesAreInactive() {
+        val state = assignmentState(assignment("A", trips = listOf(trip("x", 1, "Сорвана"), trip("y", 2, "НовыйСтатус"))), emptyList())
+        assertTrue(state.trips.all { it.isResolved })
+        assertNull(state.activeTrip)
+    }
+
+    @Test
+    fun mechanicCanCloseReplacementShiftWithoutDriverEndEvent() {
+        val closed = assignmentState(
+            assignment("A").copy(keysAccepted = true, shiftClosed = true),
+            listOf(event("A", EventTypes.OZNAKOMLENIE), event("A", EventTypes.NACHALO_SMENY))
+        )
+        assertEquals(AssignmentPhase.FINISHED, closed.phase)
+        assertFalse(closed.canMarkTrips)
+        assertNull(currentAssignment(listOf(closed)))
+    }
+
+    @Test
     fun shiftCanEndWhenAllTripsDone() {
         val state = assignmentState(
             assignment("A"),
             listOf(event("A", EventTypes.OZNAKOMLENIE), event("A", EventTypes.NACHALO_SMENY)) +
                 completeTrip("A", "A-t1") + completeTrip("A", "A-t2")
         )
+        assertFalse(state.needsReacknowledge)
         assertTrue(state.canEndShift)
         assertNull(state.activeTrip)
     }
@@ -216,7 +245,9 @@ class AssignmentStateTest {
         assertNull(cancelledTrip.nextAction)
         assertEquals(AssignmentPhase.IN_SHIFT, state.phase)
         assertTrue(state.hasTripsCancelledByDispatcher)
-        assertTrue(state.canEndShift)
+        assertTrue(state.needsReacknowledge)
+        assertFalse(state.canEndShift)
+        assertTrue(assignmentState(assignment, listOf(event("A", EventTypes.OZNAKOMLENIE, version = 2), event("A", EventTypes.NACHALO_SMENY)) + completeTrip("A", "A-t1")).canEndShift)
     }
 
     @Test
@@ -312,7 +343,7 @@ class AssignmentStateTest {
     }
 
     @Test
-    fun finishedAndCancelledAreNeverCurrent() {
+    fun finishedRemainsCurrentUntilMedicClosesShift() {
         val finished = assignmentState(
             assignment("A"),
             listOf(
@@ -322,7 +353,8 @@ class AssignmentStateTest {
             )
         )
         val cancelled = assignmentState(assignment("B", status = "Отменена"), emptyList())
-        assertNull(currentAssignment(listOf(finished, cancelled)))
+        assertEquals("A", currentAssignment(listOf(finished, cancelled))?.id)
+        assertNull(currentAssignment(listOf(finished.copy(assignment = finished.assignment.copy(shiftClosed = true)), cancelled)))
     }
 
     // Замена экипажа: старая (незавершённые сняты) и новая пришли почти
@@ -339,12 +371,13 @@ class AssignmentStateTest {
 
         val before = listOf(assignmentState(old, oldEvents), assignmentState(new, emptyList()))
         assertEquals("OLD", currentAssignment(before)?.id)
-        assertTrue(before.first().canEndShift)
+        assertTrue(before.first().needsReacknowledge)
 
         val after = listOf(
             assignmentState(old, oldEvents + event("OLD", EventTypes.OKONCHANIE_SMENY)),
             assignmentState(new, emptyList())
         )
-        assertEquals("NEW", currentAssignment(after)?.id)
+        assertEquals("OLD", currentAssignment(after)?.id)
+        assertEquals("NEW", currentAssignment(listOf(after.first().copy(assignment = after.first().assignment.copy(shiftClosed = true)), after.last()))?.id)
     }
 }
