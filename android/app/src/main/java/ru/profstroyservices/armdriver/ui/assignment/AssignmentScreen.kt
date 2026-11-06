@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -25,7 +24,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -33,9 +31,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -73,7 +68,6 @@ fun AssignmentScreen(
     viewModel: AssignmentViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var confirmEndShift by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
@@ -120,34 +114,12 @@ fun AssignmentScreen(
                 AssignmentContent(
                     content = state,
                     onAcknowledge = viewModel::onAcknowledge,
-                    onStartShift = viewModel::onStartShift,
-                    onEndShift = { confirmEndShift = true }
+                    onStartShift = viewModel::onStartShift
                 )
             }
         }
     }
 
-    if (confirmEndShift) {
-        val label = (uiState as? AssignmentUiState.Content)?.state?.label
-        AlertDialog(
-            onDismissRequest = { confirmEndShift = false },
-            title = { Text("Закончить смену?") },
-            text = { Text(if ((uiState as? AssignmentUiState.Content)?.state?.canEndShift == true) {
-                "Смена по разнарядке № $label будет завершена водителем. Затем сдайте ключи механику и пройдите осмотр у медика."
-            } else {
-                "Сначала по каждой невыполненной ездке во вкладке «Мои рейсы» нажмите «Не могу выполнить рейс» и укажите причину."
-            }) },
-            confirmButton = {
-                Button(enabled = (uiState as? AssignmentUiState.Content)?.state?.canEndShift == true, onClick = {
-                    confirmEndShift = false
-                    viewModel.onEndShift()
-                }) { Text("Закончить смену") }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { confirmEndShift = false }) { Text("Отмена") }
-            }
-        )
-    }
 }
 
 // Зелёный — смена идёт, красный — всё остальное. Цвет не единственный
@@ -196,8 +168,7 @@ private fun AppHeader() {
 private fun AssignmentContent(
     content: AssignmentUiState.Content,
     onAcknowledge: () -> Unit,
-    onStartShift: () -> Unit,
-    onEndShift: () -> Unit
+    onStartShift: () -> Unit
 ) {
     val state = content.state
     val assignment = state.assignment
@@ -321,7 +292,7 @@ private fun AssignmentContent(
                 }
             }
             if (state.cancelledByDispatcher) {
-                Notice("Разнарядка отменена диспетчером.${reasonSuffix(state)} Закончите смену.")
+                Notice("Разнарядка отменена диспетчером.${reasonSuffix(state)} Дождитесь закрытия смены в 1С после осмотра медика.")
             } else {
                 Text(
                     text = tripsProgressLabel(state),
@@ -329,9 +300,7 @@ private fun AssignmentContent(
                     fontWeight = FontWeight.SemiBold
                 )
                 // Диспетчер мог снять часть рейсов сам (замена экипажа и
-                // т.п.) — не блокирует «Закончить смену», просто поясняет,
-                // откуда взялась галочка/крестик у рейса, которого водитель
-                // не касался.
+                // т.п.) — поясняем галочку/крестик у рейса без фактов водителя.
                 if (state.hasTripsCancelledByDispatcher) {
                     Text(
                         text = "Часть рейсов сняли диспетчером.",
@@ -340,26 +309,22 @@ private fun AssignmentContent(
                     )
                 }
             }
-            // Кнопка видна и с незавершёнными рейсами, но подтверждение
-            // требует сначала отметить каждый такой рейс Срывом с причиной.
-            if (state.phase == AssignmentPhase.IN_SHIFT) {
-                Button(
-                    onClick = onEndShift,
-                    modifier = Modifier.fillMaxWidth().height(ButtonHeight)
-                ) {
-                    Text("Закончить смену", style = MaterialTheme.typography.labelLarge)
-                }
-            } else {
-                Text(text = "Отметьте невыполненные рейсы во вкладке «Мои рейсы».")
-            }
+            Text(
+                text = if (state.allTripsResolved) {
+                    if (assignment.keysAccepted) "Рейсы завершены. Пройдите осмотр у медика. Смену закроет 1С после его подтверждения."
+                    else "Рейсы завершены. Сдайте ключи механику и пройдите осмотр у медика. Смену закроет 1С."
+                } else "После рейсов сдайте ключи механику и пройдите осмотр у медика. Смену закроет 1С.",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
             CallDispatcherButton()
         }
 
         AssignmentPhase.FINISHED -> Text(
             text = when {
                 assignment.shiftClosed -> "Смена закрыта"
-                assignment.keysAccepted -> "Ключи сданы, пройдите осмотр у медика"
-                else -> "Смена завершена водителем. Сдайте ключи механику и пройдите осмотр у медика"
+                assignment.keysAccepted -> "Ключи сданы, ожидайте подтверждения медика и закрытия смены в 1С"
+                else -> "Сдайте ключи механику и пройдите осмотр у медика. Смену закроет 1С"
             },
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold

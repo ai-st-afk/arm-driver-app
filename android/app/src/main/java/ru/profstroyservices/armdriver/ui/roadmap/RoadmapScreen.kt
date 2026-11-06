@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -117,7 +119,6 @@ fun RoadmapScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var expandedTripId by remember { mutableStateOf<String?>(null) }
-    var confirmEndShift by remember { mutableStateOf(false) }
     var failureTripId by rememberSaveable { mutableStateOf<String?>(null) }
     var dismissedReackVersion by rememberSaveable { mutableStateOf<Int?>(null) }
 
@@ -224,40 +225,15 @@ fun RoadmapScreen(
                         }
                     },
                     onStepBack = viewModel::onStepBack,
-                    onFailure = { failureTripId = it },
-                    onEndShift = { confirmEndShift = true }
+                    onFailure = { failureTripId = it }
                 )
             }
         }
     }
 
-    if (confirmEndShift) {
-        AlertDialog(
-            onDismissRequest = { confirmEndShift = false },
-            title = { Text("Закончить смену?") },
-            text = { Text(when {
-                content?.canEndShift == true ->
-                    "Смена по разнарядке № ${content.label} будет завершена водителем. Затем сдайте ключи механику и пройдите осмотр у медика."
-                content?.needsReacknowledge == true ->
-                    "Маршрут изменён. Откройте вкладку «Разнарядка» и нажмите «Ознакомлен», затем вернитесь и закончите смену."
-                else ->
-                    "Сначала по каждой невыполненной ездке нажмите «Не могу выполнить рейс» и укажите причину."
-            }) },
-            confirmButton = {
-                Button(enabled = content?.canEndShift == true, onClick = {
-                    confirmEndShift = false
-                    viewModel.onEndShift()
-                }) { Text("Закончить смену") }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { confirmEndShift = false }) { Text("Отмена") }
-            }
-        )
-    }
-
     val reackState = content?.takeIf {
         it.needsReacknowledge && it.assignment.version != dismissedReackVersion &&
-            !photoInProgress && !confirmEndShift && failureTripId == null
+            !photoInProgress && failureTripId == null
     }
     if (reackState != null) {
         AlertDialog(
@@ -290,9 +266,9 @@ fun RoadmapScreen(
     failureTripId?.let { tripId ->
         TripFailureDialog(
             onDismiss = { failureTripId = null },
-            onConfirm = { reason ->
+            onConfirm = { reason, comment ->
                 failureTripId = null
-                viewModel.onTripFailure(tripId, reason)
+                viewModel.onTripFailure(tripId, reason, comment)
             }
         )
     }
@@ -356,17 +332,16 @@ private fun RoadmapList(
     onToggle: (String) -> Unit,
     onAction: (TripDto, String) -> Unit,
     onStepBack: (TripDto) -> Unit,
-    onFailure: (String) -> Unit,
-    onEndShift: () -> Unit
+    onFailure: (String) -> Unit
 ) {
     val banner = when {
         state.cancelledByDispatcher && state.phase == AssignmentPhase.IN_SHIFT ->
-            "Разнарядка отменена диспетчером. Закончите смену."
+            "Разнарядка отменена диспетчером. Дождитесь закрытия смены в 1С после осмотра медика."
         state.cancelledByDispatcher -> "Разнарядка отменена диспетчером."
         state.phase == AssignmentPhase.FINISHED -> when {
             state.assignment.shiftClosed -> "Смена закрыта"
-            state.assignment.keysAccepted -> "Ключи сданы, пройдите осмотр у медика"
-            else -> "Смена завершена водителем. Сдайте ключи механику и пройдите осмотр у медика"
+            state.assignment.keysAccepted -> "Ключи сданы, ожидайте подтверждения медика и закрытия смены в 1С"
+            else -> "Сдайте ключи механику и пройдите осмотр у медика. Смену закроет 1С"
         }
         state.phase != AssignmentPhase.IN_SHIFT ->
             "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
@@ -374,10 +349,11 @@ private fun RoadmapList(
             "Маршрут изменён. Откройте разнарядку и нажмите «Ознакомлен»."
         state.trips.any { it.returnedAfterFailure && !it.isResolved } ->
             "Рейс возвращён с новым адресом разгрузки. Проверьте адрес и выберите рейс в списке."
-        // Рейсов не осталось (выполнены или сняты диспетчером), кнопка
-        // «Закончить смену» уже видна ниже — 1С просит не прятать её и явно
-        // предложить водителю закрыть смену, а не ждать диспетчера.
-        state.canEndShift -> "Активных рейсов не осталось. Не забудьте закончить смену."
+        state.allTripsResolved -> if (state.assignment.keysAccepted) {
+            "Рейсы завершены. Пройдите осмотр у медика. Смену закроет 1С."
+        } else {
+            "Рейсы завершены. Сдайте ключи механику и пройдите осмотр у медика. Смену закроет 1С."
+        }
         else -> null
     }
     val lockedHint = when {
@@ -411,18 +387,6 @@ private fun RoadmapList(
                 onStepBack = { onStepBack(progress.trip) },
                 onFailure = { onFailure(progress.trip.id) }
             )
-        }
-        // Конец смены — отдельный факт от разгрузки. Невыполненные
-        // назначенные ездки сначала отмечаются Срывом с причиной.
-        if (state.phase == AssignmentPhase.IN_SHIFT) {
-            item(key = "end_shift") {
-                Button(
-                    onClick = onEndShift,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(PrimaryActionHeight)
-                ) {
-                    Text("Закончить смену", style = MaterialTheme.typography.labelLarge)
-                }
-            }
         }
         if (state.phase != AssignmentPhase.FINISHED) {
             item(key = "dispatcher") {
@@ -488,14 +452,18 @@ private fun MissingPhotosDialog(
 }
 
 @Composable
-private fun TripFailureDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+private fun TripFailureDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
     var reason by rememberSaveable { mutableStateOf("") }
+    var comment by rememberSaveable { mutableStateOf("") }
     val choices = listOf("Поломка машины", "Клиент не принимает", "Нет подъезда", "Груз не помещается", "Другое")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Не могу выполнить рейс") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text("Выберите причину или напишите свою. Рейс останется в списке как невыполненный.")
                 choices.forEach { choice ->
                     TextButton(onClick = { reason = if (choice == "Другое") "" else choice }) { Text(choice) }
@@ -506,10 +474,16 @@ private fun TripFailureDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit
                     label = { Text("Причина (обязательно)") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text("Комментарий диспетчеру (необязательно)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(reason.trim()) }, enabled = reason.isNotBlank()) { Text("Подтвердить") }
+            Button(onClick = { onConfirm(reason.trim(), comment.trim()) }, enabled = reason.isNotBlank()) { Text("Подтвердить") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
     )

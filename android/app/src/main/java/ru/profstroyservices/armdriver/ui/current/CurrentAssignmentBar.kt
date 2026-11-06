@@ -27,7 +27,25 @@ import ru.profstroyservices.armdriver.ui.theme.statusActiveContainer
 import javax.inject.Inject
 
 // null — ещё не загрузилось; state = null — текущей разнарядки нет.
-data class CurrentAssignment(val state: AssignmentState?, val totalAssignments: Int)
+data class CurrentAssignment(
+    val state: AssignmentState?,
+    val totalAssignments: Int,
+    val newSameDayAssignment: AssignmentState?
+)
+
+fun currentWithNewAssignment(all: List<AssignmentState>): CurrentAssignment {
+    val current = currentAssignment(all)
+    val newSameDay = current?.takeIf {
+        it.phase == AssignmentPhase.IN_SHIFT ||
+            it.phase == AssignmentPhase.FINISHED && !it.assignment.shiftClosed
+    }?.let { open ->
+        all.firstOrNull {
+            it.id != open.id && it.assignment.departureDay == open.assignment.departureDay &&
+                it.phase == AssignmentPhase.NEW
+        }
+    }
+    return CurrentAssignment(current, all.size, newSameDay)
+}
 
 @HiltViewModel
 class CurrentAssignmentViewModel @Inject constructor(
@@ -35,7 +53,7 @@ class CurrentAssignmentViewModel @Inject constructor(
 ) : ViewModel() {
 
     val current: StateFlow<CurrentAssignment?> = states.observeStates()
-        .map { all -> CurrentAssignment(currentAssignment(all), all.size) }
+        .map(::currentWithNewAssignment)
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun refresh() {
@@ -44,8 +62,8 @@ class CurrentAssignmentViewModel @Inject constructor(
 }
 
 // Строка сверху на всех вкладках: какая разнарядка сейчас текущая и в каком
-// она состоянии. Только статус — действия (начать/закончить смену) живут в
-// самой разнарядке.
+// она состоянии. Действия по рейсам и ожидание закрытия смены показаны
+// в самой разнарядке.
 @Composable
 fun CurrentAssignmentBar(state: AssignmentState, modifier: Modifier = Modifier) {
     val inShift = state.phase == AssignmentPhase.IN_SHIFT && !state.cancelledByDispatcher

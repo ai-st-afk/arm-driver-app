@@ -10,8 +10,8 @@ const val STATUS_ASSIGNED = "Назначена"
 const val STATUS_FAILED = "Сорвана"
 
 // Разнарядка = смена: у каждой свои Ознакомление → НачалоСмены →
-// ОкончаниеСмены (события уровня разнарядки, AGENTS.md). Отмену делает
-// диспетчер в 1С; водитель отдельно отмечает невыполнимую ездку Срывом.
+// Старые мобильные ОкончаниеСмены учитываются для уже записанных событий.
+// Новое закрытие смены приходит из 1С через СменаЗакрыта.
 enum class AssignmentPhase {
     NEW,
     ACCEPTED,
@@ -45,7 +45,7 @@ data class AssignmentState(
     val needsReacknowledge: Boolean,
     val changedUnloadTripIds: Set<String> = emptySet(),
     // Хотя бы один рейс снят диспетчером (замена экипажа и т.п.) — просто
-    // для текста на экране, на кнопку «Закончить смену» не влияет (см. ниже).
+    // для текста на экране; отмена ездки не закрывает смену.
     val hasTripsCancelledByDispatcher: Boolean = false,
     // Когда данные последний раз реально пришли с шлюза — «Обновлено в HH:MM».
     val updatedAt: Long? = null
@@ -60,9 +60,6 @@ data class AssignmentState(
     val activeTrip: TripProgress? get() = if (cancelledByDispatcher) null else
         trips.firstOrNull { !it.isResolved && !it.returnedAfterFailure }
             ?: trips.firstOrNull { !it.isResolved }
-    // Перед окончанием смены каждая назначенная ездка должна быть выполнена
-    // или отмечена Срывом; отменённые диспетчером тоже не блокируют.
-    val canEndShift: Boolean get() = phase == AssignmentPhase.IN_SHIFT && allTripsResolved && !needsReacknowledge
     val canMarkTrips: Boolean get() = phase == AssignmentPhase.IN_SHIFT && !cancelledByDispatcher
     // Механик ещё не выдал ключи своим АРМ — "Начать смену" недоступна,
     // даже если разнарядка принята (нововведение 2026-10-13).

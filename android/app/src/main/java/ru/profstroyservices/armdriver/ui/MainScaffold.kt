@@ -2,7 +2,11 @@ package ru.profstroyservices.armdriver.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.History
@@ -13,11 +17,16 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -87,6 +96,14 @@ fun MainScaffold(
     val currentDestination = backStackEntry?.destination
     val queueState by queueViewModel.state.collectAsState()
     val current by currentViewModel.current.collectAsState()
+    var dismissedNewAssignmentId by rememberSaveable { mutableStateOf<String?>(null) }
+    val newAssignment = current?.newSameDayAssignment
+    val openNewAssignment: () -> Unit = {
+        newAssignment?.let {
+            dismissedNewAssignmentId = it.id
+            navController.navigate(MainRoutes.assignmentDetail(it.id)) { launchSingleTop = true }
+        }
+    }
 
     // Возврат в приложение — повод дослать то, что залипло в очереди, пока
     // телефон был без сети (автосинхронизации в объёме нет, см. AGENTS.md),
@@ -133,6 +150,15 @@ fun MainScaffold(
             UpdateBanner()
             UnsentBanner(state = queueState, onRetry = queueViewModel::onRetry)
             current?.state?.let { CurrentAssignmentBar(state = it) }
+            newAssignment?.let {
+                TextButton(onClick = openNewAssignment, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "НОВАЯ РАЗНАРЯДКА № ${it.label} НА СЕГОДНЯ — ОТКРЫТЬ И ОЗНАКОМИТЬСЯ",
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
 
             NavHost(
                 navController = navController,
@@ -206,5 +232,29 @@ fun MainScaffold(
                 composable(MainRoutes.SETTINGS) { SettingsScreen() }
             }
         }
+    }
+    if (newAssignment != null && newAssignment.id != dismissedNewAssignmentId) {
+        AlertDialog(
+            onDismissRequest = { dismissedNewAssignmentId = newAssignment.id },
+            title = { Text("Пришла ещё одна разнарядка") },
+            text = { Text("Разнарядка № ${newAssignment.label} на сегодня. Откройте её, проверьте машину и рейсы, затем нажмите «Ознакомлен».") },
+            confirmButton = {
+                Button(
+                    onClick = openNewAssignment,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.onError,
+                        contentColor = androidx.compose.material3.MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Открыть разнарядку") }
+            },
+            dismissButton = {
+                TextButton(onClick = { dismissedNewAssignmentId = newAssignment.id }) {
+                    Text("Позже", color = androidx.compose.material3.MaterialTheme.colorScheme.onError)
+                }
+            },
+            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error,
+            titleContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onError,
+            textContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onError
+        )
     }
 }

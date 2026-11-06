@@ -23,6 +23,7 @@ import javax.inject.Inject
 // Совпадает с каналом в манифесте/шлюзе (internal/push/fcm.go) — заведён в
 // ArmDriverApp.onCreate.
 const val ASSIGNMENT_NOTIFICATION_CHANNEL_ID = "assignments"
+const val NEW_ASSIGNMENT_NOTIFICATION_CHANNEL_ID = "new_assignments"
 private const val NOTIFICATION_ID = 1001
 
 // Hilt поддерживает @AndroidEntryPoint и на Service, не только на
@@ -58,10 +59,10 @@ class ArmDriverFirebaseMessagingService : FirebaseMessagingService() {
 
         val title = message.notification?.title ?: return
         val body = message.notification?.body ?: ""
-        showNotification(title, body)
+        showNotification(title, body, message.data["type"] == "assignment_new", message.data["assignment_id"])
     }
 
-    private fun showNotification(title: String, body: String) {
+    private fun showNotification(title: String, body: String, isNew: Boolean, assignmentId: String?) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -73,7 +74,8 @@ class ArmDriverFirebaseMessagingService : FirebaseMessagingService() {
             Intent(this, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val notification = NotificationCompat.Builder(this, ASSIGNMENT_NOTIFICATION_CHANNEL_ID)
+        val channel = if (isNew) NEW_ASSIGNMENT_NOTIFICATION_CHANNEL_ID else ASSIGNMENT_NOTIFICATION_CHANNEL_ID
+        val notification = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(body)
@@ -81,6 +83,6 @@ class ArmDriverFirebaseMessagingService : FirebaseMessagingService() {
             .setContentIntent(openApp)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-        runCatching { NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification) }
+        runCatching { NotificationManagerCompat.from(this).notify(assignmentId?.hashCode() ?: NOTIFICATION_ID, notification) }
     }
 }

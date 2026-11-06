@@ -134,13 +134,13 @@ class RoadmapViewModel @Inject constructor(
         }
     }
 
-    fun onTripFailure(tripId: String, reason: String) {
+    fun onTripFailure(tripId: String, reason: String, comment: String) {
         val state = markableState() ?: return
         val progress = state.trips.firstOrNull { it.trip.id == tripId } ?: return
         val cleanReason = reason.trim()
         if (progress.isResolved || progress.isInactive || cleanReason.isEmpty() || cleanReason.length > 200) return
         viewModelScope.launch {
-            enqueue(state, EventTypes.SRYV, tripId, reason = cleanReason) ?: return@launch
+            enqueue(state, EventTypes.SRYV, tripId, comment = comment.trim(), reason = cleanReason) ?: return@launch
             emitFeedback("Не могу выполнить рейс", null)
             flushJob?.cancel()
             queue.flush()
@@ -177,16 +177,6 @@ class RoadmapViewModel @Inject constructor(
                 null
             )
             scheduleFlush()
-        }
-    }
-
-    fun onEndShift() {
-        val state = currentState() ?: return
-        if (!state.canEndShift) return
-        viewModelScope.launch {
-            enqueue(state, EventTypes.OKONCHANIE_SMENY, tripId = null) ?: return@launch
-            flushJob?.cancel()
-            queue.flush()
         }
     }
 

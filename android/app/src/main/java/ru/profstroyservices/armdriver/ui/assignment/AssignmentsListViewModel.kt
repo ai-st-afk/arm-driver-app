@@ -32,7 +32,7 @@ data class AssignmentSummary(
 )
 
 // При замене экипажа 1С присылает новую разнарядку рядом со старой.
-// Старая смена ещё может ждать ОкончаниеСмены, поэтому остаётся текущей,
+// Старая смена ещё может ждать закрытия из 1С, поэтому остаётся текущей,
 // но вкладка рейсов должна явно показать выбор новой разнарядки.
 fun hasReplacementAssignment(state: AssignmentsListUiState.Loaded): Boolean {
     val current = state.current ?: return false

@@ -11,6 +11,7 @@ import dagger.hilt.android.HiltAndroidApp
 import ru.profstroyservices.armdriver.data.update.AppUpdater
 import ru.profstroyservices.armdriver.data.update.UPDATE_NOTIFICATION_CHANNEL_ID
 import ru.profstroyservices.armdriver.push.ASSIGNMENT_NOTIFICATION_CHANNEL_ID
+import ru.profstroyservices.armdriver.push.NEW_ASSIGNMENT_NOTIFICATION_CHANNEL_ID
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -41,6 +42,15 @@ class ArmDriverApp : Application() {
         ).apply {
             description = "Новая разнарядка, напоминания о приёме, отмена или передача другому водителю"
         }
+        val newAssignments = NotificationChannel(
+            NEW_ASSIGNMENT_NOTIFICATION_CHANNEL_ID,
+            "Новые разнарядки",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Новая разнарядка на сегодня, требующая ознакомления"
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 350, 200, 350)
+        }
         val updates = NotificationChannel(
             UPDATE_NOTIFICATION_CHANNEL_ID,
             "Обновления приложения",
@@ -49,6 +59,6 @@ class ArmDriverApp : Application() {
             description = "Приложение обновилось до новой версии"
         }
         getSystemService(Context.NOTIFICATION_SERVICE).let { it as NotificationManager }
-            .createNotificationChannels(listOf(assignments, updates))
+            .createNotificationChannels(listOf(assignments, newAssignments, updates))
     }
 }

@@ -92,6 +92,10 @@ func (s *FCMSender) SendAssignment(ctx context.Context, notification AssignmentN
 	// Блок notification обязателен вместе с data: только data-сообщение
 	// Android не показывает, если приложение выгружено, а разнарядка в 17:00
 	// приходит именно на выключенный телефон в кармане.
+	channelID := "assignments"
+	if notification.Kind == KindNew {
+		channelID = "new_assignments"
+	}
 	payload := map[string]any{
 		"message": map[string]any{
 			"token": device.FCMToken,
@@ -107,7 +111,7 @@ func (s *FCMSender) SendAssignment(ctx context.Context, notification AssignmentN
 			"android": map[string]any{
 				"priority": "HIGH",
 				"notification": map[string]any{
-					"channel_id": "assignments",
+					"channel_id": channelID,
 					"sound":      "default",
 				},
 			},

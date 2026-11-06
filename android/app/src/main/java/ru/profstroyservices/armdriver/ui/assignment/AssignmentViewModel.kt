@@ -76,8 +76,6 @@ class AssignmentViewModel @Inject constructor(
 
     fun onStartShift() = send(EventTypes.NACHALO_SMENY) { it.canStartShift }
 
-    fun onEndShift() = send(EventTypes.OKONCHANIE_SMENY) { it.canEndShift }
-
     private fun send(type: String, allowed: (AssignmentState) -> Boolean) {
         val content = uiState.value as? AssignmentUiState.Content ?: return
         if (!allowed(content.state)) return
