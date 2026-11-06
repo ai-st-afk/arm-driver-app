@@ -231,10 +231,13 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
         AlertDialog(
             onDismissRequest = { confirmEndShift = false },
             title = { Text("Закончить смену?") },
-            text = { Text(if (content?.canEndShift == true) {
-                "Смена по разнарядке № ${content.label} будет завершена водителем. Затем сдайте ключи механику и пройдите осмотр у медика."
-            } else {
-                "Сначала по каждой невыполненной ездке нажмите «Не могу выполнить рейс» и укажите причину."
+            text = { Text(when {
+                content?.canEndShift == true ->
+                    "Смена по разнарядке № ${content.label} будет завершена водителем. Затем сдайте ключи механику и пройдите осмотр у медика."
+                content?.needsReacknowledge == true ->
+                    "Маршрут изменён. Откройте вкладку «Разнарядка» и нажмите «Ознакомлен», затем вернитесь и закончите смену."
+                else ->
+                    "Сначала по каждой невыполненной ездке нажмите «Не могу выполнить рейс» и укажите причину."
             }) },
             confirmButton = {
                 Button(enabled = content?.canEndShift == true, onClick = {
