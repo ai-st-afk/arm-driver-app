@@ -111,11 +111,15 @@ private val actionLabels = mapOf(
 // AssignmentsGate), поэтому стрелки назад тут нет.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
+fun RoadmapScreen(
+    onOpenAssignment: (String) -> Unit,
+    viewModel: RoadmapViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsState()
     var expandedTripId by remember { mutableStateOf<String?>(null) }
     var confirmEndShift by remember { mutableStateOf(false) }
     var failureTripId by rememberSaveable { mutableStateOf<String?>(null) }
+    var dismissedReackVersion by rememberSaveable { mutableStateOf<Int?>(null) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshFromNetwork() }
 
@@ -251,6 +255,38 @@ fun RoadmapScreen(viewModel: RoadmapViewModel = hiltViewModel()) {
         )
     }
 
+    val reackState = content?.takeIf {
+        it.needsReacknowledge && it.assignment.version != dismissedReackVersion &&
+            !photoInProgress && !confirmEndShift && failureTripId == null
+    }
+    if (reackState != null) {
+        AlertDialog(
+            onDismissRequest = { dismissedReackVersion = reackState.assignment.version },
+            title = { Text("Маршрут изменён") },
+            text = { Text("Проверьте новый маршрут и нажмите «Ознакомлен» на вкладке «Разнарядка». Уже отмеченные этапы сохранятся.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        dismissedReackVersion = reackState.assignment.version
+                        onOpenAssignment(reackState.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.onError,
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Открыть разнарядку") }
+            },
+            dismissButton = {
+                TextButton(onClick = { dismissedReackVersion = reackState.assignment.version }) {
+                    Text("Позже", color = MaterialTheme.colorScheme.onError)
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.error,
+            titleContentColor = MaterialTheme.colorScheme.onError,
+            textContentColor = MaterialTheme.colorScheme.onError
+        )
+    }
+
     failureTripId?.let { tripId ->
         TripFailureDialog(
             onDismiss = { failureTripId = null },
@@ -334,6 +370,8 @@ private fun RoadmapList(
         }
         state.phase != AssignmentPhase.IN_SHIFT ->
             "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
+        state.needsReacknowledge ->
+            "Маршрут изменён. Откройте разнарядку и нажмите «Ознакомлен»."
         state.trips.any { it.returnedAfterFailure && !it.isResolved } ->
             "Рейс возвращён с новым адресом разгрузки. Проверьте адрес и выберите рейс в списке."
         // Рейсов не осталось (выполнены или сняты диспетчером), кнопка

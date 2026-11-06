@@ -195,7 +195,9 @@ fun MainScaffold(
                                 }
                             }
                         }
-                        RoadmapScreen()
+                        RoadmapScreen(onOpenAssignment = { id ->
+                            navController.navigate(MainRoutes.assignmentDetail(id)) { launchSingleTop = true }
+                        })
                     }
                 }
 
