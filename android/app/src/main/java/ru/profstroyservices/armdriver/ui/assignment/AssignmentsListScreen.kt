@@ -65,8 +65,9 @@ fun AssignmentsGate(
             ) { CircularProgressIndicator() }
 
             is AssignmentsListUiState.Loaded -> {
+                val replacementAvailable = mode == GateMode.TRIPS && hasReplacementAssignment(state)
                 val target = when (mode) {
-                    GateMode.TRIPS -> state.current?.id
+                    GateMode.TRIPS -> state.current?.id?.takeUnless { replacementAvailable }
                     GateMode.ASSIGNMENTS -> state.assignments.singleOrNull()?.id
                 }
                 when {
@@ -74,9 +75,17 @@ fun AssignmentsGate(
                     // Показывать нечего, и обновиться не вышло — честно
                     // говорим «не загрузилось», а не «разнарядок нет».
                     state.refreshError != null &&
-                        (mode == GateMode.TRIPS || state.assignments.isEmpty()) -> RefreshFailedState(
+                        ((mode == GateMode.TRIPS && !replacementAvailable) || state.assignments.isEmpty()) -> RefreshFailedState(
                         reason = state.refreshError,
                         onRetry = viewModel::refresh,
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                    mode == GateMode.TRIPS && replacementAvailable -> AssignmentsList(
+                        assignments = state.assignments.sortedByDescending {
+                            it.id != state.current?.id && it.departureDay == state.current?.assignment?.departureDay && it.isPending
+                        },
+                        onSelect = onSelectFromList,
+                        notice = "Рейсы переданы в новую разнарядку. Выберите её в списке; старую смену завершите на вкладке «Разнарядка».",
                         modifier = Modifier.padding(innerPadding)
                     )
                     mode == GateMode.TRIPS -> EmptyState(
@@ -136,6 +145,7 @@ private fun EmptyState(text: String, modifier: Modifier = Modifier) {
 private fun AssignmentsList(
     assignments: List<AssignmentSummary>,
     onSelect: (String) -> Unit,
+    notice: String? = null,
     modifier: Modifier = Modifier
 ) {
     // groupBy сохраняет порядок первого появления ключа — список уже
@@ -146,6 +156,11 @@ private fun AssignmentsList(
         modifier = modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        notice?.let { text ->
+            item(key = "notice") {
+                Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+            }
+        }
         sections.forEach { (departureDay, dayAssignments) ->
             item(key = "header-$departureDay") {
                 Text(

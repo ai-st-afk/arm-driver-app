@@ -115,6 +115,21 @@ class AssignmentsListViewModelTest {
         val ids = assignmentsListState(listOf(tomorrow, current)).assignments.map { it.id }
 
         assertEquals(listOf("A", "B"), ids)
+        assertEquals(false, hasReplacementAssignment(assignmentsListState(listOf(current, tomorrow))))
+    }
+
+    @Test
+    fun `transferred trips expose new same day assignment in trips tab`() {
+        val old = assignmentState(
+            assignment("OLD", trips = listOf(trip("old-trip", 1).copy(status = "Отменена"))),
+            listOf(event("OLD", EventTypes.OZNAKOMLENIE), event("OLD", EventTypes.NACHALO_SMENY))
+        )
+        val replacement = assignmentState(assignment("NEW", trips = listOf(trip("new-trip", 1))), emptyList())
+        val loaded = assignmentsListState(listOf(old, replacement))
+
+        assertEquals("OLD", loaded.current?.id)
+        assertEquals(setOf("OLD", "NEW"), loaded.assignments.map { it.id }.toSet())
+        assertTrue(hasReplacementAssignment(loaded))
     }
 
     @Test
