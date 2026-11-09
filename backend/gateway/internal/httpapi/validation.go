@@ -56,6 +56,18 @@ func validateAssignment(a assignmentXML) error {
 			return fmt.Errorf("для %s=true не передано время", flag.name)
 		}
 	}
+	if a.ShiftStarted != "" && !strings.EqualFold(a.ShiftStarted, "true") && !strings.EqualFold(a.ShiftStarted, "false") {
+		return fmt.Errorf("некорректный признак СменаНачата: %q", a.ShiftStarted)
+	}
+	if strings.EqualFold(a.Status, "Заменена") && (a.Replacement == nil || a.Replacement.ID == "") {
+		return errors.New("для статуса Заменена не передана Замена/Идентификатор")
+	}
+	if a.Replacement != nil && a.Replacement.ID == "" {
+		return errors.New("пустая Замена/Идентификатор")
+	}
+	if a.Basis != nil && a.Basis.ID == "" {
+		return errors.New("пустое Основание/Идентификатор")
+	}
 	for _, value := range []struct {
 		name string
 		raw  string
@@ -64,6 +76,7 @@ func validateAssignment(a assignmentXML) error {
 		{name: "ПланВозврата", raw: a.PlanReturn},
 		{name: "ВремяПриемаКлючей", raw: a.KeysAcceptedAt},
 		{name: "ВремяЗакрытияСмены", raw: a.ShiftClosedAt},
+		{name: "ВремяНачалаСмены", raw: a.ShiftStartedAt},
 	} {
 		if value.raw != "" {
 			if _, err := time.Parse(time.RFC3339, value.raw); err != nil {
@@ -81,6 +94,20 @@ func validateAssignment(a assignmentXML) error {
 		if len([]rune(trip.CancelReason)) > 200 {
 			return fmt.Errorf("ездка %s: ПричинаОтмены длиннее 200 символов", trip.ID)
 		}
+		if trip.CargoRaw != "" && !strings.EqualFold(trip.CargoRaw, "true") && !strings.EqualFold(trip.CargoRaw, "false") {
+			return fmt.Errorf("ездка %s: некорректный признак ГрузВМашине: %q", trip.ID, trip.CargoRaw)
+		}
+		if trip.NextStage != nil {
+			switch *trip.NextStage {
+			case "", "ПрибылНаПогрузку", "ЗагрузилсяВПуть", "ПрибылНаРазгрузку", "Разгрузился":
+			default:
+				return fmt.Errorf("ездка %s: неизвестный СледующийЭтап: %q", trip.ID, *trip.NextStage)
+			}
+			if *trip.NextStage == "" && trip.Status == "Назначена" &&
+				(trip.Stages == nil || trip.Stages.Unloaded == "") {
+				return fmt.Errorf("ездка %s: пустой СледующийЭтап у незавершённой ездки", trip.ID)
+			}
+		}
 		for _, value := range []struct {
 			name string
 			raw  string
@@ -91,6 +118,23 @@ func validateAssignment(a assignmentXML) error {
 			if value.raw != "" {
 				if _, err := time.Parse(time.RFC3339, value.raw); err != nil {
 					return fmt.Errorf("ездка %s: некорректное время %s: %w", trip.ID, value.name, err)
+				}
+			}
+		}
+		if trip.Stages != nil {
+			if trip.Stages.LegacyAcceptedTask != nil {
+				return fmt.Errorf("ездка %s: ПринялЗадание исключено из контракта", trip.ID)
+			}
+			for _, stage := range []struct{ name, raw string }{
+				{"ПрибылНаПогрузку", trip.Stages.ArrivedLoad},
+				{"ЗагрузилсяВПуть", trip.Stages.Loaded},
+				{"ПрибылНаРазгрузку", trip.Stages.ArrivedUnload},
+				{"Разгрузился", trip.Stages.Unloaded},
+			} {
+				if stage.raw != "" {
+					if _, err := time.Parse(time.RFC3339, stage.raw); err != nil {
+						return fmt.Errorf("ездка %s: некорректное время этапа %s: %w", trip.ID, stage.name, err)
+					}
 				}
 			}
 		}

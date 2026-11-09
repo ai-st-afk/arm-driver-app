@@ -74,12 +74,24 @@ data class TripContactDto(
 data class ContactPhoneDto(val display: String, val number: String)
 
 @Serializable
+data class TripStagesDto(
+    @SerialName("arrived_load") val arrivedLoad: String? = null,
+    val loaded: String? = null,
+    @SerialName("arrived_unload") val arrivedUnload: String? = null,
+    val unloaded: String? = null
+)
+
+@Serializable
 data class TripDto(
     val id: String,
     val order: Int,
     val status: String,
     @SerialName("cancel_reason") val cancelReason: String? = null,
     val customer: String? = null,
+    @SerialName("basis_trip_id") val basisTripId: String? = null,
+    val stages: TripStagesDto? = null,
+    @SerialName("cargo_in_vehicle") val cargoInVehicle: Boolean? = null,
+    @SerialName("next_stage") val nextStage: String? = null,
     val trailer: TrailerDto = TrailerDto(),
     @SerialName("load_point") val loadPoint: PointDto,
     @SerialName("unload_point") val unloadPoint: PointDto,
@@ -87,6 +99,12 @@ data class TripDto(
     @SerialName("plan_unload") val planUnload: String? = null,
     val cargo: CargoDto = CargoDto(),
     val contacts: List<TripContactDto> = emptyList()
+)
+
+@Serializable
+data class AssignmentLinkDto(
+    val id: String,
+    val number: String? = null
 )
 
 @Serializable
@@ -110,6 +128,10 @@ data class AssignmentDto(
     @SerialName("keys_accepted_at") val keysAcceptedAt: String? = null,
     @SerialName("shift_closed") val shiftClosed: Boolean = false,
     @SerialName("shift_closed_at") val shiftClosedAt: String? = null,
+    @SerialName("shift_started") val shiftStarted: Boolean = false,
+    @SerialName("shift_started_at") val shiftStartedAt: String? = null,
+    val replacement: AssignmentLinkDto? = null,
+    val basis: AssignmentLinkDto? = null,
     val trips: List<TripDto> = emptyList(),
     @SerialName("shift_total") val shiftTotal: CargoTotalDto? = null
 )

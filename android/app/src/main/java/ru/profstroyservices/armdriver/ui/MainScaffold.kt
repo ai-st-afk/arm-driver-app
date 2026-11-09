@@ -97,10 +97,15 @@ fun MainScaffold(
     val queueState by queueViewModel.state.collectAsState()
     val current by currentViewModel.current.collectAsState()
     var dismissedNewAssignmentId by rememberSaveable { mutableStateOf<String?>(null) }
+    var openedReplacementId by rememberSaveable { mutableStateOf<String?>(null) }
     val newAssignment = current?.newSameDayAssignment
+    val inheritedReplacement = newAssignment?.assignment?.basis != null
+    val showNewAssignment = newAssignment != null && (!inheritedReplacement || newAssignment.id != openedReplacementId)
+    val announcement = newAssignment?.takeIf { showNewAssignment }
     val openNewAssignment: () -> Unit = {
         newAssignment?.let {
             dismissedNewAssignmentId = it.id
+            if (inheritedReplacement) openedReplacementId = it.id
             navController.navigate(MainRoutes.assignmentDetail(it.id)) { launchSingleTop = true }
         }
     }
@@ -150,10 +155,11 @@ fun MainScaffold(
             UpdateBanner()
             UnsentBanner(state = queueState, onRetry = queueViewModel::onRetry)
             current?.state?.let { CurrentAssignmentBar(state = it) }
-            newAssignment?.let {
+            announcement?.let {
                 TextButton(onClick = openNewAssignment, modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        "НОВАЯ РАЗНАРЯДКА № ${it.label} НА СЕГОДНЯ — ОТКРЫТЬ И ОЗНАКОМИТЬСЯ",
+                        if (inheritedReplacement) "ЗАМЕНА МАШИНЫ — РАЗНАРЯДКА № ${it.label}. ПРОВЕРИТЬ МАШИНУ И РЕЙСЫ"
+                        else "НОВАЯ РАЗНАРЯДКА № ${it.label} НА СЕГОДНЯ — ОТКРЫТЬ И ОЗНАКОМИТЬСЯ",
                         color = androidx.compose.material3.MaterialTheme.colorScheme.error,
                         fontWeight = FontWeight.Bold
                     )
@@ -233,11 +239,15 @@ fun MainScaffold(
             }
         }
     }
-    if (newAssignment != null && newAssignment.id != dismissedNewAssignmentId) {
+    if (announcement != null && announcement.id != dismissedNewAssignmentId) {
         AlertDialog(
             onDismissRequest = { dismissedNewAssignmentId = newAssignment.id },
             title = { Text("Пришла ещё одна разнарядка") },
-            text = { Text("Разнарядка № ${newAssignment.label} на сегодня. Откройте её, проверьте машину и рейсы, затем нажмите «Ознакомлен».") },
+            text = { Text(if (inheritedReplacement)
+                if (announcement.assignment.shiftStarted)
+                    "Машину заменили. Откройте разнарядку № ${announcement.label} и проверьте новые рейсы. Смена продолжается; для рейсов нужны ключи от новой машины."
+                else "Машину заменили, но 1С ещё не передала начало смены в новую разнарядку № ${announcement.label}. Откройте маршрут; этапы пока недоступны."
+                else "Разнарядка № ${announcement.label} на сегодня. Откройте её, проверьте машину и рейсы, затем нажмите «Ознакомлен».") },
             confirmButton = {
                 Button(
                     onClick = openNewAssignment,

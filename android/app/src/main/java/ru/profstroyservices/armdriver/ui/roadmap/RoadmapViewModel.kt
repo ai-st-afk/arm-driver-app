@@ -112,8 +112,10 @@ class RoadmapViewModel @Inject constructor(
         if (state.canMarkTrips) return state
         emitFeedback(
             when {
+                state.phase == AssignmentPhase.REPLACED -> "Разнарядка заменена. Откройте новую разнарядку"
                 state.cancelledByDispatcher -> "Разнарядка отменена диспетчером"
                 state.phase == AssignmentPhase.FINISHED -> "Смена по этой разнарядке уже закончена"
+                state.assignment.shiftStarted && !state.assignment.keysIssued -> "Дождитесь выдачи ключей от новой машины"
                 else -> "Сначала начните смену на вкладке «Разнарядка»"
             },
             null
@@ -123,10 +125,7 @@ class RoadmapViewModel @Inject constructor(
 
     fun onTripAction(trip: TripDto, type: String) {
         val state = markableState() ?: return
-        val progress = state.trips.firstOrNull { it.trip.id == trip.id } ?: return
-        if (progress.isResolved ||
-            (progress.trip.id != state.activeTrip?.trip?.id && !progress.returnedAfterFailure) ||
-            progress.nextAction != type) return
+        if (!state.canMarkTripStep(trip.id, type)) return
         viewModelScope.launch {
             val eventId = enqueue(state, type, trip.id) ?: return@launch
             emitFeedback(actionFeedbackText(type), eventId)
@@ -188,7 +187,7 @@ class RoadmapViewModel @Inject constructor(
     // карточке, вместе с фото (см. onStepBack).
     fun onStepPhotos(tripId: String, type: String, photos: List<CapturedPhoto>, missingReason: String? = null) {
         val state = markableState()
-        if (state == null || state.activeTrip?.trip?.id != tripId || state.activeTrip?.nextAction != type) {
+        if (state == null || !state.canMarkTripStep(tripId, type)) {
             photos.forEach { File(it.path).delete() }
             return
         }

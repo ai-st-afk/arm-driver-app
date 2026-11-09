@@ -85,6 +85,7 @@ import ru.profstroyservices.armdriver.ui.components.LabeledField
 import ru.profstroyservices.armdriver.ui.components.CargoDetails
 import ru.profstroyservices.armdriver.ui.components.TripContacts
 import ru.profstroyservices.armdriver.ui.components.firstNotBlank
+import ru.profstroyservices.armdriver.ui.components.formatEventDateTime
 import ru.profstroyservices.armdriver.ui.components.formatTime
 import ru.profstroyservices.armdriver.ui.components.pointLabel
 import ru.profstroyservices.armdriver.ui.components.pointShortLabel
@@ -335,6 +336,8 @@ private fun RoadmapList(
     onFailure: (String) -> Unit
 ) {
     val banner = when {
+        state.phase == AssignmentPhase.REPLACED ->
+            "Разнарядка заменена. Рейсы здесь больше не отмечаются. Если вам назначили новую разнарядку, откройте её в списке."
         state.cancelledByDispatcher && state.phase == AssignmentPhase.IN_SHIFT ->
             "Разнарядка отменена диспетчером. Дождитесь закрытия смены в 1С после осмотра медика."
         state.cancelledByDispatcher -> "Разнарядка отменена диспетчером."
@@ -345,6 +348,8 @@ private fun RoadmapList(
         }
         state.phase != AssignmentPhase.IN_SHIFT ->
             "Смена не начата. Отметить рейс можно после «Начать смену» на вкладке «Разнарядка»."
+        state.assignment.shiftStarted && state.assignment.basis != null && !state.assignment.keysIssued ->
+            "Смена продолжается по новой разнарядке. Дождитесь выдачи ключей от новой машины."
         state.needsReacknowledge ->
             "Маршрут изменён. Откройте разнарядку и нажмите «Ознакомлен»."
         state.trips.any { it.returnedAfterFailure && !it.isResolved } ->
@@ -358,7 +363,9 @@ private fun RoadmapList(
     }
     val lockedHint = when {
         state.canMarkTrips -> null
+        state.phase == AssignmentPhase.REPLACED -> "Разнарядка заменена — отмечать этапы здесь нельзя."
         state.phase == AssignmentPhase.FINISHED -> "Смена закончена — отмечать этапы больше нельзя."
+        state.assignment.shiftStarted && !state.assignment.keysIssued -> "Дождитесь выдачи ключей от новой машины."
         state.cancelledByDispatcher -> "Разнарядка отменена — отмечать этапы нельзя."
         else -> "Начните смену, чтобы отмечать этапы этого рейса."
     }
@@ -388,7 +395,7 @@ private fun RoadmapList(
                 onFailure = { onFailure(progress.trip.id) }
             )
         }
-        if (state.phase != AssignmentPhase.FINISHED) {
+        if (state.phase != AssignmentPhase.FINISHED && state.phase != AssignmentPhase.REPLACED) {
             item(key = "dispatcher") {
                 CallDispatcherButton(text = "Проблема с рейсом — позвонить диспетчеру")
             }
@@ -534,6 +541,9 @@ private fun TripRow(
             state.trip.cargo.let { cargo ->
                 CargoDetails(cargo.positions, cargo.weight, cargo.volume, cargo.composition)
             }
+            if (state.cargoInVehicle) {
+                Text("Груз в машине", color = activeColor, fontWeight = FontWeight.SemiBold)
+            }
 
             if (expanded) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -616,6 +626,16 @@ private fun ExpandedDetails(
         LabeledField(label = "Погрузка", value = pointLabel(trip.loadPoint), onClick = navigateAction(trip.loadPoint))
         LabeledField(label = "Разгрузка", value = pointLabel(trip.unloadPoint), onClick = navigateAction(trip.unloadPoint))
         trip.customer?.takeIf { it.isNotBlank() }?.let { LabeledField(label = "Заказчик", value = it) }
+        trip.stages?.let { stages ->
+            listOf(
+                "Прибыл на погрузку" to stages.arrivedLoad,
+                "Загрузился" to stages.loaded,
+                "Прибыл на разгрузку" to stages.arrivedUnload,
+                "Разгрузился" to stages.unloaded
+            ).forEach { (label, time) ->
+                if (!time.isNullOrBlank()) LabeledField(label = label, value = formatEventDateTime(time))
+            }
+        }
         TripContacts(trip.contacts)
     }
 

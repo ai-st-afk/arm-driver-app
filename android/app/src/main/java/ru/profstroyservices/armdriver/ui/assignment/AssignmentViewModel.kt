@@ -16,9 +16,12 @@ import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.AssignmentStateRepository
 import ru.profstroyservices.armdriver.data.repository.EventQueueRepository
 import ru.profstroyservices.armdriver.data.repository.EventTypes
+import ru.profstroyservices.armdriver.data.repository.DRIVER_TIME_ZONE
 import ru.profstroyservices.armdriver.data.repository.QueueRepository
+import ru.profstroyservices.armdriver.data.repository.sameDriverReplacement
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import javax.inject.Inject
+import java.time.LocalDate
 
 sealed interface AssignmentUiState {
     data object Loading : AssignmentUiState
@@ -27,7 +30,9 @@ sealed interface AssignmentUiState {
         val state: AssignmentState,
         // Смена открыта по другой разнарядке — эту начать нельзя, пока та не
         // закончена: активной бывает только одна разнарядка.
-        val otherOpenShiftLabel: String?
+        val otherOpenShiftLabel: String?,
+        val replacementForDriver: Boolean,
+        val continuesSameDriverShift: Boolean
     ) : AssignmentUiState
 }
 
@@ -54,7 +59,10 @@ class AssignmentViewModel @Inject constructor(
                     state = state,
                     otherOpenShiftLabel = all
                         .firstOrNull { it.id != assignmentId && it.phase == AssignmentPhase.IN_SHIFT }
-                        ?.label
+                        ?.label,
+                    replacementForDriver = all.any { it.id == state.assignment.replacement?.id &&
+                        it.assignment.driver.id == state.assignment.driver.id },
+                    continuesSameDriverShift = sameDriverReplacement(state, all)
                 )
                 refreshing -> AssignmentUiState.Loading
                 else -> AssignmentUiState.Error("Нет связи и нет сохранённой разнарядки. Проверьте интернет.")
@@ -74,14 +82,16 @@ class AssignmentViewModel @Inject constructor(
         it.phase == AssignmentPhase.NEW || it.phase == AssignmentPhase.IN_SHIFT && it.needsReacknowledge
     }
 
-    fun onStartShift() = send(EventTypes.NACHALO_SMENY) { it.canStartShift }
+    fun onStartShift() = send(EventTypes.NACHALO_SMENY) { it.canStartShiftOn(LocalDate.now(DRIVER_TIME_ZONE)) }
 
     private fun send(type: String, allowed: (AssignmentState) -> Boolean) {
         val content = uiState.value as? AssignmentUiState.Content ?: return
         if (!allowed(content.state)) return
+        if (type == EventTypes.NACHALO_SMENY && content.continuesSameDriverShift) return
         if (type == EventTypes.NACHALO_SMENY && content.otherOpenShiftLabel != null) return
         viewModelScope.launch {
             val driverId = settings.driverId.first() ?: return@launch
+            if (type == EventTypes.NACHALO_SMENY && !content.state.canStartShiftOn(LocalDate.now(DRIVER_TIME_ZONE))) return@launch
             eventQueue.enqueue(
                 type = type,
                 driverId = driverId,

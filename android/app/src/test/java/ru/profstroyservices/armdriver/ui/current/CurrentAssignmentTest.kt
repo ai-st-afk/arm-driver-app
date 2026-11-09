@@ -5,6 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import ru.profstroyservices.armdriver.data.db.PendingEventEntity
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
+import ru.profstroyservices.armdriver.data.network.AssignmentLinkDto
 import ru.profstroyservices.armdriver.data.network.PersonDto
 import ru.profstroyservices.armdriver.data.network.VehicleDto
 import ru.profstroyservices.armdriver.data.repository.EventTypes
@@ -56,5 +57,56 @@ class CurrentAssignmentTest {
         )
         val tomorrow = assignmentState(assignment("TOMORROW", "2026-11-07"), emptyList())
         assertNull(currentWithNewAssignment(listOf(old, tomorrow)).newSameDayAssignment)
+    }
+
+    @Test
+    fun `inherited replacement is announced after it becomes current`() {
+        val old = assignmentState(
+            assignment("OLD", "2026-11-06").copy(status = "Заменена", replacement = AssignmentLinkDto("NEW", "37")),
+            listOf(event("OLD", EventTypes.NACHALO_SMENY))
+        )
+        val new = assignmentState(
+            assignment("NEW", "2026-11-06").copy(basis = AssignmentLinkDto("OLD", "36"), shiftStarted = true),
+            emptyList()
+        )
+        val current = currentWithNewAssignment(listOf(old, new))
+        assertEquals("NEW", current.state?.id)
+        assertEquals("NEW", current.newSameDayAssignment?.id)
+    }
+
+    @Test
+    fun `new driver start is not announced as inherited shift`() {
+        val old = assignmentState(
+            assignment("OLD", "2026-11-06").copy(
+                status = "Заменена", replacement = AssignmentLinkDto("NEW", "37")
+            ),
+            listOf(event("OLD", EventTypes.NACHALO_SMENY))
+        )
+        val new = assignmentState(
+            assignment("NEW", "2026-11-06").copy(
+                driver = PersonDto(id = "other-driver"),
+                basis = AssignmentLinkDto("OLD", "36"),
+                shiftStarted = true
+            ),
+            listOf(event("NEW", EventTypes.NACHALO_SMENY))
+        )
+        assertNull(currentWithNewAssignment(listOf(old, new)).newSameDayAssignment)
+    }
+
+    @Test
+    fun `missing inherited start flag still announces linked replacement`() {
+        val old = assignmentState(
+            assignment("OLD", "2026-11-06").copy(
+                status = "Заменена", replacement = AssignmentLinkDto("NEW", "37")
+            ),
+            listOf(event("OLD", EventTypes.NACHALO_SMENY))
+        )
+        val new = assignmentState(
+            assignment("NEW", "2026-11-06").copy(basis = AssignmentLinkDto("OLD", "36")),
+            emptyList()
+        )
+        val current = currentWithNewAssignment(listOf(old, new))
+        assertEquals("NEW", current.state?.id)
+        assertEquals("NEW", current.newSameDayAssignment?.id)
     }
 }

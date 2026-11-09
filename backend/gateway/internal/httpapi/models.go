@@ -17,16 +17,25 @@ type assignmentXML struct {
 	// откажется парсить, если 1С отдаст регистр/формат не строго "true"/
 	// "false". Старые разнарядки без этого элемента — пустая строка,
 	// что ниже превращается в false (механик ключи не выдавал).
-	KeysIssued     string         `xml:"КлючиВыданы"`
-	KeysIssuedAt   string         `xml:"ВремяВыдачиКлючей"`
-	KeysAccepted   string         `xml:"КлючиПриняты"`
-	KeysAcceptedAt string         `xml:"ВремяПриемаКлючей"`
-	ShiftClosed    string         `xml:"СменаЗакрыта"`
-	ShiftClosedAt  string         `xml:"ВремяЗакрытияСмены"`
-	Driver         personXML      `xml:"Водитель"`
-	Vehicle        vehicleXML     `xml:"Машина"`
-	Trips          []tripXML      `xml:"Ездки>Ездка"`
-	ShiftTotal     *cargoTotalXML `xml:"ИтогоЗаСмену"`
+	KeysIssued     string             `xml:"КлючиВыданы"`
+	KeysIssuedAt   string             `xml:"ВремяВыдачиКлючей"`
+	KeysAccepted   string             `xml:"КлючиПриняты"`
+	KeysAcceptedAt string             `xml:"ВремяПриемаКлючей"`
+	ShiftClosed    string             `xml:"СменаЗакрыта"`
+	ShiftClosedAt  string             `xml:"ВремяЗакрытияСмены"`
+	ShiftStarted   string             `xml:"СменаНачата"`
+	ShiftStartedAt string             `xml:"ВремяНачалаСмены"`
+	Replacement    *assignmentLinkXML `xml:"Замена"`
+	Basis          *assignmentLinkXML `xml:"Основание"`
+	Driver         personXML          `xml:"Водитель"`
+	Vehicle        vehicleXML         `xml:"Машина"`
+	Trips          []tripXML          `xml:"Ездки>Ездка"`
+	ShiftTotal     *cargoTotalXML     `xml:"ИтогоЗаСмену"`
+}
+
+type assignmentLinkXML struct {
+	ID     string `xml:"Идентификатор" json:"id"`
+	Number string `xml:"Номер" json:"number,omitempty"`
 }
 
 type personXML struct {
@@ -99,6 +108,10 @@ type tripXML struct {
 	Status       string           `xml:"Статус" json:"status"`
 	CancelReason string           `xml:"ПричинаОтмены" json:"cancel_reason,omitempty"`
 	Customer     string           `xml:"Заказчик" json:"customer,omitempty"`
+	BasisTripID  string           `xml:"ЕздкаОснование" json:"basis_trip_id,omitempty"`
+	Stages       *tripStagesXML   `xml:"Этапы" json:"stages,omitempty"`
+	CargoRaw     string           `xml:"ГрузВМашине" json:"-"`
+	NextStage    *string          `xml:"СледующийЭтап" json:"next_stage,omitempty"`
 	Trailer      trailerXML       `xml:"Прицеп" json:"trailer,omitempty"`
 	LoadPoint    pointXML         `xml:"ПунктПогрузки" json:"load_point"`
 	UnloadPoint  pointXML         `xml:"ПунктРазгрузки" json:"unload_point"`
@@ -106,6 +119,19 @@ type tripXML struct {
 	PlanUnload   string           `xml:"ПланРазгрузки" json:"plan_unload,omitempty"`
 	Cargo        cargoXML         `xml:"Груз" json:"cargo"`
 	Contacts     []tripContactXML `xml:"Контакты>Контакт" json:"contacts,omitempty"`
+}
+
+type tripStagesXML struct {
+	LegacyAcceptedTask *string `xml:"ПринялЗадание" json:"-"`
+	ArrivedLoad        string  `xml:"ПрибылНаПогрузку" json:"arrived_load,omitempty"`
+	Loaded             string  `xml:"ЗагрузилсяВПуть" json:"loaded,omitempty"`
+	ArrivedUnload      string  `xml:"ПрибылНаРазгрузку" json:"arrived_unload,omitempty"`
+	Unloaded           string  `xml:"Разгрузился" json:"unloaded,omitempty"`
+}
+
+type tripResponse struct {
+	tripXML
+	CargoInVehicle *bool `json:"cargo_in_vehicle,omitempty"`
 }
 
 type eventsXML struct {
@@ -192,14 +218,18 @@ type assignmentResponse struct {
 	PlanReturn   string     `json:"plan_return,omitempty"`
 	// Механик выдал ключи — своим АРМ, отдельно от диспетчера. Без этого
 	// "Начать смену" на телефоне недоступна (см. AGENTS.md).
-	KeysIssued     bool           `json:"keys_issued"`
-	KeysIssuedAt   string         `json:"keys_issued_at,omitempty"`
-	KeysAccepted   bool           `json:"keys_accepted"`
-	KeysAcceptedAt string         `json:"keys_accepted_at,omitempty"`
-	ShiftClosed    bool           `json:"shift_closed"`
-	ShiftClosedAt  string         `json:"shift_closed_at,omitempty"`
-	Trips          []tripXML      `json:"trips"`
-	ShiftTotal     *cargoTotalXML `json:"shift_total,omitempty"`
+	KeysIssued     bool               `json:"keys_issued"`
+	KeysIssuedAt   string             `json:"keys_issued_at,omitempty"`
+	KeysAccepted   bool               `json:"keys_accepted"`
+	KeysAcceptedAt string             `json:"keys_accepted_at,omitempty"`
+	ShiftClosed    bool               `json:"shift_closed"`
+	ShiftClosedAt  string             `json:"shift_closed_at,omitempty"`
+	ShiftStarted   bool               `json:"shift_started"`
+	ShiftStartedAt string             `json:"shift_started_at,omitempty"`
+	Replacement    *assignmentLinkXML `json:"replacement,omitempty"`
+	Basis          *assignmentLinkXML `json:"basis,omitempty"`
+	Trips          []tripResponse     `json:"trips"`
+	ShiftTotal     *cargoTotalXML     `json:"shift_total,omitempty"`
 }
 
 type eventsRequest struct {

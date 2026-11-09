@@ -31,6 +31,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -42,6 +43,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import ru.profstroyservices.armdriver.R
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
+import ru.profstroyservices.armdriver.data.repository.DRIVER_TIME_ZONE
 import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.CargoDetails
 import ru.profstroyservices.armdriver.ui.components.LabeledField
@@ -53,8 +55,11 @@ import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
 import ru.profstroyservices.armdriver.ui.theme.statusActiveContainer
 import java.text.SimpleDateFormat
 import java.time.LocalDate
+import java.time.Duration
+import java.time.ZonedDateTime
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 // По этим кнопкам бьют в перчатках и в тряске — они крупнее обычных.
 private val ButtonHeight = 64.dp
@@ -68,6 +73,14 @@ fun AssignmentScreen(
     viewModel: AssignmentViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val today by produceState(initialValue = LocalDate.now(DRIVER_TIME_ZONE)) {
+        while (true) {
+            val now = ZonedDateTime.now(DRIVER_TIME_ZONE)
+            val midnight = now.toLocalDate().plusDays(1).atStartOfDay(DRIVER_TIME_ZONE)
+            delay(Duration.between(now, midnight).toMillis().coerceAtLeast(1_000L))
+            value = LocalDate.now(DRIVER_TIME_ZONE)
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
@@ -113,6 +126,7 @@ fun AssignmentScreen(
                 AppHeader()
                 AssignmentContent(
                     content = state,
+                    today = today,
                     onAcknowledge = viewModel::onAcknowledge,
                     onStartShift = viewModel::onStartShift
                 )
@@ -144,6 +158,7 @@ fun statusLabel(state: AssignmentState): String = when (state.phase) {
     AssignmentPhase.NEW -> if (state.needsReacknowledge) "изменена" else "не принята"
     AssignmentPhase.ACCEPTED -> "принята"
     AssignmentPhase.IN_SHIFT -> if (state.cancelledByDispatcher) "отменена диспетчером" else "смена идёт"
+    AssignmentPhase.REPLACED -> "заменена"
     AssignmentPhase.FINISHED -> if (state.assignment.shiftClosed) "смена закрыта" else "сдача смены"
     AssignmentPhase.CANCELLED -> "отменена диспетчером"
 }
@@ -167,6 +182,7 @@ private fun AppHeader() {
 @Composable
 private fun AssignmentContent(
     content: AssignmentUiState.Content,
+    today: LocalDate,
     onAcknowledge: () -> Unit,
     onStartShift: () -> Unit
 ) {
@@ -195,7 +211,7 @@ private fun AssignmentContent(
         }
     }
 
-    if (isFutureAssignment(assignment.departureDay)) {
+    if (isFutureAssignment(assignment.departureDay, today)) {
         Surface(
             color = MaterialTheme.colorScheme.secondaryContainer,
             shape = RoundedCornerShape(12.dp),
@@ -203,7 +219,7 @@ private fun AssignmentContent(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = if (isTomorrowAssignment(assignment.departureDay)) {
+                    text = if (isTomorrowAssignment(assignment.departureDay, today)) {
                         "Разнарядка на завтра. Это не текущая смена."
                     } else {
                         "Будущая разнарядка. Это не текущая смена."
@@ -236,12 +252,26 @@ private fun AssignmentContent(
     }
 
     when (state.phase) {
+        AssignmentPhase.REPLACED -> {
+            val next = assignment.replacement?.number ?: assignment.replacement?.id
+            Notice("Разнарядка заменена${next?.let { " на № $it" } ?: ""}. Рейсы этой разнарядки больше не отмечаются.")
+            Text(
+                text = if (assignment.shiftClosed) "Закрытие по этой разнарядке подтверждено 1С."
+                else if (content.replacementForDriver) "Это прежняя разнарядка. Работайте по новой после выдачи ключей от машины."
+                else "Это прежняя разнарядка. Если работа на сегодня завершена, сдайте ключи и пройдите медика. Если ждёте новую машину — уточните у диспетчера.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
         AssignmentPhase.CANCELLED -> {
             Notice("Разнарядка отменена диспетчером.${reasonSuffix(state)}")
             CallDispatcherButton()
         }
 
         AssignmentPhase.NEW, AssignmentPhase.ACCEPTED -> {
+            if (content.continuesSameDriverShift && !assignment.shiftStarted) {
+                Notice("Разнарядка назначена взамен прежней, но 1С ещё не передала «СменаНачата=true». Дождитесь обновления; этапы рейсов пока недоступны.")
+            }
             if (state.needsReacknowledge) {
                 Notice("Диспетчер изменил разнарядку. Проверьте рейсы и подтвердите заново.")
             }
@@ -258,11 +288,13 @@ private fun AssignmentContent(
             }
             Button(
                 onClick = onStartShift,
-                enabled = state.canStartShift && content.otherOpenShiftLabel == null,
+                enabled = state.canStartShiftOn(today) && content.otherOpenShiftLabel == null &&
+                    !content.continuesSameDriverShift,
                 modifier = Modifier.fillMaxWidth().height(ButtonHeight),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
-                Text("Начать смену", style = MaterialTheme.typography.labelLarge)
+                Text(if (content.continuesSameDriverShift) "Ожидаем продолжение смены от 1С" else "Начать смену",
+                    style = MaterialTheme.typography.labelLarge)
             }
             // Механик выдаёт ключи своим АРМ, отдельно от диспетчера —
             // до этого "Начать смену" недоступна, даже если разнарядка уже
@@ -274,9 +306,21 @@ private fun AssignmentContent(
                     color = MaterialTheme.colorScheme.error
                 )
             }
+            if (state.phase == AssignmentPhase.ACCEPTED && assignment.keysIssued && !state.canStartShiftOn(today)) {
+                val departureDay = runCatching { LocalDate.parse(assignment.departureDay) }.getOrNull()
+                Text(
+                    text = when {
+                        departureDay == null -> "Некорректная дата выезда в разнарядке. Обратитесь к диспетчеру."
+                        departureDay.isAfter(today) -> "Начать смену можно только в день выезда — ${assignment.departureDay}."
+                        else -> "Дата выезда ${assignment.departureDay} прошла. Уточните разнарядку у диспетчера."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
             content.otherOpenShiftLabel?.let { other ->
                 Text(
-                    text = "Сначала закончите смену по разнарядке № $other.",
+                    text = "Сначала дождитесь закрытия смены по разнарядке № $other в 1С.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -285,6 +329,9 @@ private fun AssignmentContent(
         }
 
         AssignmentPhase.IN_SHIFT -> {
+            if (content.continuesSameDriverShift && assignment.shiftStarted && !assignment.keysIssued) {
+                Notice("Разнарядка продолжает начатую смену. Дождитесь выдачи ключей от новой машины механиком.")
+            }
             if (state.needsReacknowledge) {
                 Notice("Маршрут изменён. Проверьте ездки и подтвердите ознакомление заново.")
                 Button(onClick = onAcknowledge, modifier = Modifier.fillMaxWidth().height(ButtonHeight)) {
@@ -313,6 +360,8 @@ private fun AssignmentContent(
                 text = if (state.allTripsResolved) {
                     if (assignment.keysAccepted) "Рейсы завершены. Пройдите осмотр у медика. Смену закроет 1С после его подтверждения."
                     else "Рейсы завершены. Сдайте ключи механику и пройдите осмотр у медика. Смену закроет 1С."
+                } else if (assignment.keysAccepted) {
+                    "Ключи сданы, но есть незавершённые рейсы. Для каждого укажите «Не могу выполнить рейс» с причиной или дождитесь отмены диспетчером. После этого медик сможет закрыть смену."
                 } else "После рейсов сдайте ключи механику и пройдите осмотр у медика. Смену закроет 1С.",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold
@@ -332,10 +381,10 @@ private fun AssignmentContent(
     }
 }
 
-internal fun isFutureAssignment(departureDay: String, today: LocalDate = LocalDate.now()): Boolean =
+internal fun isFutureAssignment(departureDay: String, today: LocalDate = LocalDate.now(DRIVER_TIME_ZONE)): Boolean =
     runCatching { LocalDate.parse(departureDay).isAfter(today) }.getOrDefault(false)
 
-internal fun isTomorrowAssignment(departureDay: String, today: LocalDate = LocalDate.now()): Boolean =
+internal fun isTomorrowAssignment(departureDay: String, today: LocalDate = LocalDate.now(DRIVER_TIME_ZONE)): Boolean =
     runCatching { LocalDate.parse(departureDay) == today.plusDays(1) }.getOrDefault(false)
 
 @Composable

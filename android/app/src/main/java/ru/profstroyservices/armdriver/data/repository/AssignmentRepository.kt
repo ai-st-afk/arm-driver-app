@@ -90,12 +90,22 @@ internal fun updatedAssignment(
         keysAcceptedAt = assignment.keysAcceptedAt,
         shiftClosed = assignment.shiftClosed,
         shiftClosedAt = assignment.shiftClosedAt,
-        // Подтверждать ознакомление нужно при изменении маршрута, а не при
-        // промежуточном статусе Сорвана и причине, пришедшей из 1С.
+        shiftStarted = assignment.shiftStarted,
+        shiftStartedAt = assignment.shiftStartedAt,
+        replacement = assignment.replacement,
+        basis = assignment.basis,
+        // Признаки смены и ссылки замены задаёт 1С: сами по себе они не
+        // меняют маршрут и не требуют нового ознакомления.
         trips = old.trips.map { prior ->
             val incoming = assignment.trips.firstOrNull { it.id == prior.id }
-            if (incoming?.status == STATUS_FAILED) prior.copy(status = incoming.status, cancelReason = incoming.cancelReason)
-            else prior
+            val withoutFacts = prior.copy(
+                basisTripId = incoming?.basisTripId,
+                stages = incoming?.stages,
+                cargoInVehicle = incoming?.cargoInVehicle,
+                nextStage = incoming?.nextStage
+            )
+            if (incoming?.status == STATUS_FAILED) withoutFacts.copy(status = incoming.status, cancelReason = incoming.cancelReason)
+            else withoutFacts
         }
     ) != assignment
     val ackRequired = when {

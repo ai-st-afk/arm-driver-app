@@ -21,6 +21,43 @@ func TestV13AssignmentFieldsReachMobile(t *testing.T) {
 	}
 }
 
+func TestReplacementAssignmentFieldsReachMobile(t *testing.T) {
+	oldXML := `<Разнарядка><Идентификатор>old</Идентификатор><Версия>5</Версия><ДатаВыезда>2026-11-06</ДатаВыезда><Статус>Заменена</Статус><Замена><Идентификатор>new</Идентификатор><Номер>37</Номер></Замена><Водитель><Идентификатор>driver</Идентификатор></Водитель><Машина><Идентификатор>old-vehicle</Идентификатор></Машина><КлючиПриняты>false</КлючиПриняты><СменаЗакрыта>false</СменаЗакрыта></Разнарядка>`
+	newXML := `<Разнарядка><Идентификатор>new</Идентификатор><Версия>2</Версия><ДатаВыезда>2026-11-06</ДатаВыезда><Статус>Активна</Статус><Основание><Идентификатор>old</Идентификатор><Номер>36</Номер></Основание><СменаНачата>true</СменаНачата><КлючиВыданы>false</КлючиВыданы><Водитель><Идентификатор>driver</Идентификатор></Водитель><Машина><Идентификатор>new-vehicle</Идентификатор></Машина></Разнарядка>`
+	for _, tc := range []struct {
+		name  string
+		raw   string
+		check func(assignmentResponse) bool
+	}{
+		{"old", oldXML, func(a assignmentResponse) bool {
+			return a.Status == "Заменена" && a.Replacement != nil && a.Replacement.ID == "new" && a.Replacement.Number == "37" && !a.ShiftClosed
+		}},
+		{"new", newXML, func(a assignmentResponse) bool {
+			return a.Basis != nil && a.Basis.ID == "old" && a.ShiftStarted && !a.KeysIssued
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var assignment assignmentXML
+			if err := xml.Unmarshal([]byte(tc.raw), &assignment); err != nil {
+				t.Fatal(err)
+			}
+			if err := validateAssignment(assignment); err != nil {
+				t.Fatal(err)
+			}
+			if !tc.check(assignmentToResponse(assignment)) {
+				t.Fatalf("replacement fields lost: %+v", assignmentToResponse(assignment))
+			}
+		})
+	}
+}
+
+func TestReplacedAssignmentRequiresReplacementLink(t *testing.T) {
+	assignment := assignmentXML{ID: "old", Version: 2, Status: "Заменена", Driver: personXML{ID: "driver"}, Vehicle: vehicleXML{ID: "vehicle"}}
+	if err := validateAssignment(assignment); err == nil {
+		t.Fatal("missing replacement link accepted")
+	}
+}
+
 func TestV13FailureReasonInXML(t *testing.T) {
 	req := eventsRequest{Events: []eventRequest{{
 		ID: "event", Type: "Срыв", DriverID: "driver", AssignmentID: "assignment", TripID: "trip",

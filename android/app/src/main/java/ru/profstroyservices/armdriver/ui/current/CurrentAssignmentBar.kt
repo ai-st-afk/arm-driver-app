@@ -1,5 +1,6 @@
 package ru.profstroyservices.armdriver.ui.current
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -20,7 +21,9 @@ import kotlinx.coroutines.launch
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.AssignmentStateRepository
+import ru.profstroyservices.armdriver.data.repository.PushRepository
 import ru.profstroyservices.armdriver.data.repository.currentAssignment
+import ru.profstroyservices.armdriver.data.repository.sameDriverReplacement
 import ru.profstroyservices.armdriver.ui.assignment.statusLabel
 import ru.profstroyservices.armdriver.ui.theme.statusActiveColor
 import ru.profstroyservices.armdriver.ui.theme.statusActiveContainer
@@ -35,7 +38,10 @@ data class CurrentAssignment(
 
 fun currentWithNewAssignment(all: List<AssignmentState>): CurrentAssignment {
     val current = currentAssignment(all)
-    val newSameDay = current?.takeIf {
+    val inheritedReplacement = current?.takeIf {
+        sameDriverReplacement(it, all)
+    }
+    val newSameDay = inheritedReplacement ?: current?.takeIf {
         it.phase == AssignmentPhase.IN_SHIFT ||
             it.phase == AssignmentPhase.FINISHED && !it.assignment.shiftClosed
     }?.let { open ->
@@ -49,7 +55,8 @@ fun currentWithNewAssignment(all: List<AssignmentState>): CurrentAssignment {
 
 @HiltViewModel
 class CurrentAssignmentViewModel @Inject constructor(
-    private val states: AssignmentStateRepository
+    private val states: AssignmentStateRepository,
+    private val push: PushRepository
 ) : ViewModel() {
 
     val current: StateFlow<CurrentAssignment?> = states.observeStates()
@@ -58,6 +65,12 @@ class CurrentAssignmentViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch { states.refresh() }
+        // При первой привязке FCM ещё может не выдать токен, а onNewToken
+        // повторяется редко. Следующий вход в приложение даёт шанс привязать
+        // устройство и вернуть push без переустановки.
+        viewModelScope.launch {
+            push.registerCurrentToken().onFailure { Log.w("ArmDriverPush", "FCM token registration failed", it) }
+        }
     }
 }
 

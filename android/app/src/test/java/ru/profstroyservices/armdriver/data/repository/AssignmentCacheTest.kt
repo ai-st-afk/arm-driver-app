@@ -7,9 +7,11 @@ import org.junit.Test
 import ru.profstroyservices.armdriver.data.db.toAssignmentDto
 import ru.profstroyservices.armdriver.data.db.toEntity
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
+import ru.profstroyservices.armdriver.data.network.AssignmentLinkDto
 import ru.profstroyservices.armdriver.data.network.PersonDto
 import ru.profstroyservices.armdriver.data.network.PointDto
 import ru.profstroyservices.armdriver.data.network.TripDto
+import ru.profstroyservices.armdriver.data.network.TripStagesDto
 import ru.profstroyservices.armdriver.data.network.VehicleDto
 
 class AssignmentCacheTest {
@@ -76,5 +78,42 @@ class AssignmentCacheTest {
             status = STATUS_FAILED, cancelReason = "Клиент не принимает"
         )))
         assertEquals(2, updatedAssignment(failed, old, "driver", 200)!!.ackRequiredVersion)
+    }
+
+    @Test
+    fun `inherited start and replacement links survive cache without new acknowledgement`() {
+        val old = assignment.toEntity("driver", 100).copy(ackRequiredVersion = 2)
+        val inherited = assignment.copy(
+            version = 3,
+            shiftStarted = true,
+            basis = AssignmentLinkDto("previous", "36"),
+            replacement = AssignmentLinkDto("next", "38")
+        )
+        val result = updatedAssignment(inherited, old, "driver", 200)!!
+        assertEquals(2, result.ackRequiredVersion)
+        assertEquals(true, result.toAssignmentDto().shiftStarted)
+        assertEquals("previous", result.toAssignmentDto().basis?.id)
+        assertEquals("next", result.toAssignmentDto().replacement?.id)
+    }
+
+    @Test
+    fun `v14 stage progress and cargo flag do not require new acknowledgement`() {
+        val old = assignment.toEntity("driver", 100).copy(ackRequiredVersion = 2)
+        val progressed = assignment.copy(
+            version = 3,
+            shiftStartedAt = "2026-10-16T07:30:00+03:00",
+            trips = listOf(assignment.trips.single().copy(
+                basisTripId = "old-trip",
+                stages = TripStagesDto(
+                    arrivedLoad = "2026-10-16T08:25:00+03:00",
+                    loaded = "2026-10-16T08:50:00+03:00"
+                ),
+                cargoInVehicle = true,
+                nextStage = EventTypes.PRIBYL_NA_RAZGRUZKU
+            ))
+        )
+        val updated = updatedAssignment(progressed, old, "driver", 200)!!
+        assertEquals(2, updated.ackRequiredVersion)
+        assertEquals(EventTypes.PRIBYL_NA_RAZGRUZKU, updated.toAssignmentDto().trips.single().nextStage)
     }
 }

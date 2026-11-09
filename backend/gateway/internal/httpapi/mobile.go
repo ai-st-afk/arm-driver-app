@@ -6,6 +6,15 @@ import (
 )
 
 func assignmentToResponse(a assignmentXML) assignmentResponse {
+	trips := make([]tripResponse, 0, len(a.Trips))
+	for _, trip := range a.Trips {
+		response := tripResponse{tripXML: trip}
+		if trip.CargoRaw != "" {
+			loaded := strings.EqualFold(trip.CargoRaw, "true")
+			response.CargoInVehicle = &loaded
+		}
+		trips = append(trips, response)
+	}
 	return assignmentResponse{
 		ID:           a.ID,
 		Version:      a.Version,
@@ -25,7 +34,11 @@ func assignmentToResponse(a assignmentXML) assignmentResponse {
 		KeysAcceptedAt: a.KeysAcceptedAt,
 		ShiftClosed:    strings.EqualFold(a.ShiftClosed, "true"),
 		ShiftClosedAt:  a.ShiftClosedAt,
-		Trips:          a.Trips,
+		ShiftStarted:   strings.EqualFold(a.ShiftStarted, "true"),
+		ShiftStartedAt: a.ShiftStartedAt,
+		Replacement:    a.Replacement,
+		Basis:          a.Basis,
+		Trips:          trips,
 		ShiftTotal:     a.ShiftTotal,
 	}
 }

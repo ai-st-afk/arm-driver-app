@@ -66,8 +66,8 @@ class AssignmentStateRepository @Inject constructor(
     fun observeCurrent(): Flow<AssignmentState?> = observeStates().map(::currentAssignment)
 
     // Свежий список с шлюза. Разнарядки, которых шлюз больше не отдаёт
-    // (вышли из окна выдачи), из кэша убираем — кроме той, где смена ещё
-    // открыта: её водитель должен закрыть сам.
+    // (вышли из окна выдачи), из кэша убираем — кроме разнарядок с ещё
+    // открытой сменой: её закрытие подтвердит 1С.
     suspend fun refresh(force: Boolean = false): Result<Unit> {
         val driverId = settings.driverId.first() ?: return Result.success(Unit)
         return listRefreshes.getOrPut(driverId) { RefreshGate() }.run(force) {
@@ -76,7 +76,8 @@ class AssignmentStateRepository @Inject constructor(
                 assignments.refreshList(driverId).map { fresh ->
                     reacknowledgeTrivialVersionBumps(before, fresh, driverId)
                     val openShift = observeStates().first()
-                        .filter { it.phase == AssignmentPhase.IN_SHIFT || it.phase == AssignmentPhase.FINISHED && !it.assignment.shiftClosed }
+                        .filter { it.phase == AssignmentPhase.IN_SHIFT ||
+                            (it.phase == AssignmentPhase.FINISHED || it.phase == AssignmentPhase.REPLACED) && !it.assignment.shiftClosed }
                         .map { it.id }
                     cache.deleteForDriverExcept(driverId, fresh.map { it.id } + openShift)
                 }

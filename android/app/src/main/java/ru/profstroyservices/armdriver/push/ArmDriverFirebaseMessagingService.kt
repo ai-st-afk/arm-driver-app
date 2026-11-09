@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -42,7 +43,9 @@ class ArmDriverFirebaseMessagingService : FirebaseMessagingService() {
     // очистке данных Google Play services и т.п. Дошлём его при первой же
     // возможности, не дожидаясь следующего онлайна вручную.
     override fun onNewToken(token: String) {
-        scope.launch { pushRepository.registerToken(token) }
+        scope.launch {
+            pushRepository.registerToken(token).onFailure { Log.w("ArmDriverPush", "FCM token registration failed", it) }
+        }
     }
 
     // FCM с одновременно notification+data не вызывает этот метод, пока

@@ -31,7 +31,7 @@ class PushRepository @Inject constructor(
     // привязан. После «Служебного входа» токен для этого driver_id иначе
     // не уйдёт до следующей ротации, поэтому дёргаем явно (ServiceViewModel).
     suspend fun registerCurrentToken(): Result<Unit> = runCatching {
-        val token = currentToken() ?: return@runCatching
+        val token = currentToken() ?: error("FCM-токен недоступен")
         registerToken(token).getOrThrow()
     }
 

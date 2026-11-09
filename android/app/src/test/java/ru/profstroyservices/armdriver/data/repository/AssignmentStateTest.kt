@@ -7,10 +7,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.profstroyservices.armdriver.data.db.PendingEventEntity
 import ru.profstroyservices.armdriver.data.network.AssignmentDto
+import ru.profstroyservices.armdriver.data.network.AssignmentLinkDto
 import ru.profstroyservices.armdriver.data.network.PersonDto
 import ru.profstroyservices.armdriver.data.network.PointDto
 import ru.profstroyservices.armdriver.data.network.TripDto
 import ru.profstroyservices.armdriver.data.network.VehicleDto
+import java.time.LocalDate
 
 class AssignmentStateTest {
 
@@ -149,6 +151,27 @@ class AssignmentStateTest {
         )
         assertEquals(AssignmentPhase.ACCEPTED, state.phase)
         assertTrue(state.canStartShift)
+        assertTrue(state.canStartShiftOn(LocalDate.parse("2026-09-22")))
+    }
+
+    @Test
+    fun acceptedTomorrowCannotStartShiftToday() {
+        val state = assignmentState(
+            assignment("A", day = "2026-09-23", keysIssued = true),
+            listOf(event("A", EventTypes.OZNAKOMLENIE))
+        )
+        assertFalse(state.canStartShiftOn(LocalDate.parse("2026-09-22")))
+        assertTrue(state.canStartShiftOn(LocalDate.parse("2026-09-23")))
+        assertFalse(state.canStartShiftOn(LocalDate.parse("2026-09-24")))
+    }
+
+    @Test
+    fun invalidDepartureDayDoesNotAllowStart() {
+        val state = assignmentState(
+            assignment("A", day = "2026-09-", keysIssued = true),
+            listOf(event("A", EventTypes.OZNAKOMLENIE))
+        )
+        assertFalse(state.canStartShiftOn(LocalDate.parse("2026-09-22")))
     }
 
     // Ключи выданы, но разнарядка ещё не принята (не было Ознакомления) —
@@ -217,7 +240,16 @@ class AssignmentStateTest {
         assertFalse(EventTypes.PRIBYL_NA_RAZGRUZKU in returned.doneTypes)
         assertEquals(EventTypes.PRIBYL_NA_RAZGRUZKU, returned.nextAction)
         assertEquals("A-t2", state.activeTrip?.trip?.id)
+        assertTrue(state.canMarkTripStep("A-t1", EventTypes.PRIBYL_NA_RAZGRUZKU))
+        assertFalse(state.canMarkTripStep("A-t1", EventTypes.RAZGRUZILSYA))
         assertTrue(state.needsReacknowledge)
+
+        val arrived = assignmentState(
+            rerouted,
+            events + event("A", EventTypes.PRIBYL_NA_RAZGRUZKU, "A-t1", version = 2)
+        )
+        assertEquals("A-t2", arrived.activeTrip?.trip?.id)
+        assertTrue(arrived.canMarkTripStep("A-t1", EventTypes.RAZGRUZILSYA))
     }
 
     @Test
@@ -412,4 +444,107 @@ class AssignmentStateTest {
         )
         assertEquals("NEW", currentAssignment(after)?.id)
     }
+
+    @Test
+    fun sameDriverReplacementContinuesOnNewAssignmentWithoutNewStartEvent() {
+        val old = assignmentState(
+            assignment("OLD", status = STATUS_REPLACED, trips = listOf(trip("OLD-t1", 1, STATUS_CANCELLED)))
+                .copy(replacement = AssignmentLinkDto("NEW", "37")),
+            listOf(event("OLD", EventTypes.OZNAKOMLENIE), event("OLD", EventTypes.NACHALO_SMENY))
+        )
+        val newDto = assignment("NEW", keysIssued = false)
+            .copy(basis = AssignmentLinkDto("OLD", "36"), shiftStarted = true)
+        val waitingKeys = assignmentState(newDto, emptyList())
+        assertEquals(AssignmentPhase.REPLACED, old.phase)
+        assertFalse(old.canMarkTrips)
+        assertEquals(AssignmentPhase.IN_SHIFT, waitingKeys.phase)
+        assertFalse(waitingKeys.canStartShift)
+        assertFalse(waitingKeys.canMarkTrips)
+        assertEquals("NEW", currentAssignment(listOf(old, waitingKeys))?.id)
+
+        val issued = assignmentState(newDto.copy(version = 2, keysIssued = true), emptyList())
+        assertTrue(issued.canMarkTrips)
+        assertEquals(EventTypes.PRIBYL_NA_POGRUZKU, issued.activeTrip?.nextAction)
+        assertEquals("NEW", currentAssignment(listOf(issued, old))?.id)
+    }
+
+    @Test
+    fun inheritedReplacementWinsWhenOldPacketIsDelayed() {
+        val old = assignmentState(
+            assignment("OLD"),
+            listOf(event("OLD", EventTypes.NACHALO_SMENY))
+        )
+        val new = assignmentState(
+            assignment("NEW", keysIssued = true)
+                .copy(basis = AssignmentLinkDto("OLD", "36"), shiftStarted = true),
+            emptyList()
+        )
+        assertEquals("NEW", currentAssignment(listOf(old, new))?.id)
+    }
+
+    @Test
+    fun replacementLinkSelectsNewRouteButMissingStartFlagKeepsTripsLocked() {
+        val old = assignmentState(
+            assignment("OLD", status = STATUS_REPLACED)
+                .copy(replacement = AssignmentLinkDto("NEW", "37")),
+            listOf(event("OLD", EventTypes.NACHALO_SMENY))
+        )
+        val new = assignmentState(
+            assignment("NEW", keysIssued = true).copy(basis = AssignmentLinkDto("OLD", "36")),
+            emptyList()
+        )
+        assertEquals("NEW", currentAssignment(listOf(old, new))?.id)
+        assertTrue(sameDriverReplacement(new, listOf(old, new)))
+        assertEquals(AssignmentPhase.NEW, new.phase)
+        assertFalse(new.canMarkTrips)
+    }
+
+    @Test
+    fun differentDriverReplacementStillRequiresOwnStart() {
+        val new = assignmentState(
+            assignment("NEW", keysIssued = true).copy(basis = AssignmentLinkDto("OLD", "36")),
+            emptyList()
+        )
+        assertEquals(AssignmentPhase.NEW, new.phase)
+        assertFalse(new.canMarkTrips)
+        val acknowledged = assignmentState(new.assignment, listOf(event("NEW", EventTypes.OZNAKOMLENIE)))
+        assertEquals(AssignmentPhase.ACCEPTED, acknowledged.phase)
+        assertTrue(acknowledged.canStartShift)
+    }
+
+    @Test
+    fun oldDriverSeesReplacedAssignmentOnlyInHistoryUntilMedicClosesShift() {
+        val oldDto = assignment("OLD", status = STATUS_REPLACED)
+            .copy(replacement = AssignmentLinkDto("NEW", "37"))
+        val waitingMedic = assignmentState(
+            oldDto,
+            listOf(event("OLD", EventTypes.NACHALO_SMENY))
+        )
+        val tomorrow = assignmentState(assignment("TOMORROW", day = "2026-09-23"), emptyList())
+        assertNull(currentAssignment(listOf(waitingMedic)))
+        assertEquals("TOMORROW", currentAssignment(listOf(waitingMedic, tomorrow))?.id)
+        assertFalse(waitingMedic.canMarkTrips)
+
+        val closed = assignmentState(oldDto.copy(shiftClosed = true), emptyList())
+        assertEquals("TOMORROW", currentAssignment(listOf(closed, tomorrow))?.id)
+    }
+
+    @Test
+    fun closedReplacementLinkCannotTakeOverNextShift() {
+        val old = assignmentState(
+            assignment("OLD", status = STATUS_REPLACED)
+                .copy(replacement = AssignmentLinkDto("NEW", "37"), shiftClosed = true),
+            emptyList()
+        )
+        val finishedReplacement = assignmentState(
+            assignment("NEW").copy(basis = AssignmentLinkDto("OLD", "36"), shiftStarted = true, shiftClosed = true),
+            emptyList()
+        )
+        val next = assignmentState(
+            assignment("NEXT", day = "2026-09-23"),
+            listOf(event("NEXT", EventTypes.NACHALO_SMENY))
+        )
+        assertEquals("NEXT", currentAssignment(listOf(old, finishedReplacement, next))?.id)
+    }
+
 }

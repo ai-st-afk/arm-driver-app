@@ -34,13 +34,6 @@ data class AssignmentSummary(
 // При замене экипажа 1С присылает новую разнарядку рядом со старой.
 // Старая смена ещё может ждать закрытия из 1С, поэтому остаётся текущей,
 // но вкладка рейсов должна явно показать выбор новой разнарядки.
-fun hasReplacementAssignment(state: AssignmentsListUiState.Loaded): Boolean {
-    val current = state.current ?: return false
-    return current.phase == AssignmentPhase.IN_SHIFT && current.trips.isNotEmpty() &&
-        current.trips.all { it.isCancelled } &&
-        state.assignments.any { it.id != current.id && it.departureDay == current.assignment.departureDay && it.isPending }
-}
-
 sealed interface AssignmentsListUiState {
     data object Loading : AssignmentsListUiState
     data class Loaded(
@@ -108,5 +101,5 @@ fun assignmentsListState(all: List<AssignmentState>): AssignmentsListUiState.Loa
 private fun phaseOrder(phase: AssignmentPhase): Int = when (phase) {
     AssignmentPhase.IN_SHIFT -> 0
     AssignmentPhase.NEW, AssignmentPhase.ACCEPTED -> 1
-    AssignmentPhase.FINISHED, AssignmentPhase.CANCELLED -> 2
+    AssignmentPhase.FINISHED, AssignmentPhase.CANCELLED, AssignmentPhase.REPLACED -> 2
 }
