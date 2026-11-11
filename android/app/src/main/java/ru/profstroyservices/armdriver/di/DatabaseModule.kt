@@ -16,6 +16,7 @@ import ru.profstroyservices.armdriver.data.db.MIGRATION_6_7
 import ru.profstroyservices.armdriver.data.db.MIGRATION_7_8
 import ru.profstroyservices.armdriver.data.db.MIGRATION_8_9
 import ru.profstroyservices.armdriver.data.db.MIGRATION_9_10
+import ru.profstroyservices.armdriver.data.db.MIGRATION_10_11
 import ru.profstroyservices.armdriver.data.db.PendingEventDao
 import ru.profstroyservices.armdriver.data.db.PendingPhotoDao
 import javax.inject.Singleton
@@ -28,7 +29,7 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "arm-driver.db")
-            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             // Схемы 1 и 2 существовали только на машинах разработки — их
             // пересоздаём. Начиная с 3 база переживает обновление приложения,
             // иначе вместе с ней уедет неотправленная очередь событий.

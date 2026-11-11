@@ -35,6 +35,7 @@ class MigrationTest {
                 .callback(object : SupportSQLiteOpenHelper.Callback(8) {
                     override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                         db.execSQL("CREATE TABLE IF NOT EXISTS `pending_events` (`id` TEXT NOT NULL, `type` TEXT NOT NULL, `driverId` TEXT NOT NULL, `assignmentId` TEXT NOT NULL, `tripId` TEXT, `time` TEXT NOT NULL, `comment` TEXT NOT NULL, `sent` INTEGER NOT NULL, `lastError` TEXT, `cancelled` INTEGER NOT NULL, `assignmentVersion` INTEGER, `latitude` REAL, `longitude` REAL, `locationAccuracy` INTEGER, `locationFixTime` TEXT, PRIMARY KEY(`id`))")
+                        db.execSQL("INSERT INTO pending_events (id, type, driverId, assignmentId, tripId, time, comment, sent, cancelled) VALUES ('e1', 'Срыв', 'd1', 'a1', 't1', '2026-11-11T11:20:00+03:00', 'Клиент не принял', 0, 0)")
                         db.execSQL("CREATE TABLE IF NOT EXISTS `cached_assignments` (`id` TEXT NOT NULL, `driverId` TEXT NOT NULL, `assignmentJson` TEXT NOT NULL, `version` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))")
                         db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_assignments_driverId` ON `cached_assignments` (`driverId`)")
                         db.execSQL("CREATE TABLE IF NOT EXISTS `pending_photos` (`id` TEXT NOT NULL, `tripId` TEXT NOT NULL, `driverId` TEXT NOT NULL, `assignmentId` TEXT NOT NULL, `filePath` TEXT NOT NULL, `uploaded` INTEGER NOT NULL, `lastError` TEXT, `enqueuedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))")
@@ -50,19 +51,22 @@ class MigrationTest {
     }
 
     @Test
-    fun pendingPhotoSurvivesUpgradeTo10() = runBlocking {
+    fun pendingEventAndPhotoSurviveUpgradeTo11() = runBlocking {
         createVersion8()
 
         // Room сверяет схему после миграции с сущностями — ошибка в миграции
         // здесь упадёт так же, как упала бы у водителя при обновлении.
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
+            .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             .build()
         val photos = db.pendingPhotoDao().getPending()
+        val events = db.pendingEventDao().getUnsent()
         db.close()
 
         assertEquals(listOf("p1"), photos.map { it.id })
         assertNull(photos.single().eventId)
         assertNull(photos.single().kind)
+        assertEquals(listOf("e1"), events.map { it.id })
+        assertNull(events.single().reasonCode)
     }
 }

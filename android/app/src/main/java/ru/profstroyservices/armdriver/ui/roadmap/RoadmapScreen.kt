@@ -120,7 +120,9 @@ fun RoadmapScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var expandedTripId by remember { mutableStateOf<String?>(null) }
-    var failureTripId by rememberSaveable { mutableStateOf<String?>(null) }
+    var failureDraft by rememberSaveable(stateSaver = FailureDraftSaver) { mutableStateOf<FailureDraft?>(null) }
+    var unloadCommentTripId by rememberSaveable { mutableStateOf<String?>(null) }
+    var unloadComment by rememberSaveable { mutableStateOf("") }
     var dismissedReackVersion by rememberSaveable { mutableStateOf<Int?>(null) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshFromNetwork() }
@@ -134,7 +136,7 @@ fun RoadmapScreen(
     var askMissing by rememberSaveable { mutableStateOf(false) }
     // Пока этап снимается (камера или вопрос о недостающих фото),
     // обновление не ставим — оно закрыло бы приложение вместе со снимками.
-    val photoInProgress = session != null
+    val photoInProgress = session != null || failureDraft != null || unloadCommentTripId != null
     DisposableEffect(photoInProgress) {
         val release = if (photoInProgress) viewModel.holdUpdates() else null
         onDispose { release?.invoke() }
@@ -147,9 +149,13 @@ fun RoadmapScreen(
             return@rememberLauncherForActivityResult
         }
         val merged = current.photos + result.photos
-        if (result.completed || nextMissingStep(current.steps, merged) == null) {
+        if (current.eventType == EventTypes.SRYV) {
             session = null
-            viewModel.onStepPhotos(current.tripId, current.eventType, merged)
+            if (failureDraft?.tripId == current.tripId) failureDraft = failureDraft?.copy(photos = merged)
+            else merged.forEach { File(it.path).delete() }
+        } else if (result.completed || nextMissingStep(current.steps, merged) == null) {
+            session = null
+            viewModel.onStepPhotos(current.tripId, current.eventType, merged, comment = current.comment)
         } else {
             session = current.copy(photos = merged)
             askMissing = true
@@ -157,7 +163,7 @@ fun RoadmapScreen(
     }
     val requestCamera = rememberCameraAccess(onDenied = {
         cameraDenied = true
-        askMissing = true
+        if (session?.eventType == EventTypes.SRYV) session = null else askMissing = true
     })
     fun launchCamera(target: PhotoSession) {
         val start = nextMissingStep(target.steps, target.photos) ?: 0
@@ -217,7 +223,10 @@ fun RoadmapScreen(
                     expandedTripId = expandedTripId,
                     onToggle = { tripId -> expandedTripId = if (expandedTripId == tripId) null else tripId },
                     onAction = { trip, type ->
-                        if (photoStepsFor(type) != null) {
+                        if (type == EventTypes.RAZGRUZILSYA) {
+                            unloadCommentTripId = trip.id
+                            unloadComment = ""
+                        } else if (photoStepsFor(type) != null) {
                             val started = PhotoSession(trip.id, type, emptyList())
                             session = started
                             launchCamera(started)
@@ -226,7 +235,7 @@ fun RoadmapScreen(
                         }
                     },
                     onStepBack = viewModel::onStepBack,
-                    onFailure = { failureTripId = it }
+                    onFailure = { failureDraft = FailureDraft(it) }
                 )
             }
         }
@@ -234,7 +243,7 @@ fun RoadmapScreen(
 
     val reackState = content?.takeIf {
         it.needsReacknowledge && it.assignment.version != dismissedReackVersion &&
-            !photoInProgress && failureTripId == null
+            !photoInProgress && failureDraft == null
     }
     if (reackState != null) {
         AlertDialog(
@@ -264,13 +273,54 @@ fun RoadmapScreen(
         )
     }
 
-    failureTripId?.let { tripId ->
+    val draft = failureDraft
+    if (draft != null && session == null) {
+        val clientRefusal = content?.trips?.firstOrNull { it.trip.id == draft.tripId }?.isClientRefusalAvailable == true
         TripFailureDialog(
-            onDismiss = { failureTripId = null },
-            onConfirm = { reason, comment ->
-                failureTripId = null
-                viewModel.onTripFailure(tripId, reason, comment)
+            draft = draft,
+            clientRefusal = clientRefusal,
+            cameraDenied = cameraDenied,
+            onChange = { failureDraft = it },
+            onDismiss = {
+                draft.photos.forEach { File(it.path).delete() }
+                failureDraft = null
+            },
+            onCapture = {
+                val started = PhotoSession(draft.tripId, EventTypes.SRYV, draft.photos)
+                session = started
+                launchCamera(started)
+            },
+            onConfirm = {
+                failureDraft = null
+                viewModel.onTripFailure(draft.tripId, draft.reason, draft.comment, draft.reasonCode, draft.photos)
             }
+        )
+    }
+
+    unloadCommentTripId?.let { tripId ->
+        AlertDialog(
+            onDismissRequest = { unloadCommentTripId = null },
+            title = { Text("Разгрузка") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Если клиент принял только часть груза, укажите в комментарии, сколько не приняли.")
+                    OutlinedTextField(
+                        value = unloadComment,
+                        onValueChange = { unloadComment = it.take(500) },
+                        label = { Text("Комментарий (необязательно)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val started = PhotoSession(tripId, EventTypes.RAZGRUZILSYA, emptyList(), unloadComment.trim())
+                    unloadCommentTripId = null
+                    session = started
+                    launchCamera(started)
+                }) { Text("Продолжить к фото") }
+            },
+            dismissButton = { TextButton(onClick = { unloadCommentTripId = null }) { Text("Отмена") } }
         )
     }
 
@@ -286,7 +336,7 @@ fun RoadmapScreen(
             onMarkWithout = { reason ->
                 askMissing = false
                 session = null
-                viewModel.onStepPhotos(pending.tripId, pending.eventType, pending.photos, reason)
+                viewModel.onStepPhotos(pending.tripId, pending.eventType, pending.photos, reason, pending.comment)
             },
             onAbort = {
                 askMissing = false
@@ -299,21 +349,45 @@ fun RoadmapScreen(
 
 // Этап с обязательными фото, который снимается сейчас: рейс, тип события и
 // уже принятые снимки (вместе с теми, что сняты до выхода из камеры).
-private data class PhotoSession(val tripId: String, val eventType: String, val photos: List<CapturedPhoto>) {
+private data class PhotoSession(val tripId: String, val eventType: String, val photos: List<CapturedPhoto>, val comment: String = "") {
     val steps: List<PhotoStep> get() = photoStepsFor(eventType).orEmpty()
 }
+
+private data class FailureDraft(
+    val tripId: String,
+    val reason: String = "",
+    val comment: String = "",
+    val reasonCode: String? = null,
+    val photos: List<CapturedPhoto> = emptyList()
+)
+
+private val FailureDraftSaver = Saver<FailureDraft?, ArrayList<String>>(
+    save = { draft -> draft?.let {
+        arrayListOf(it.tripId, it.reason, it.comment, it.reasonCode.orEmpty()).apply {
+            it.photos.forEach { photo -> add(photo.kind.code); add(photo.path) }
+        }
+    } },
+    restore = { saved -> FailureDraft(
+        saved[0], saved[1], saved[2], saved[3].ifBlank { null },
+        saved.drop(4).chunked(2).mapNotNull { (code, path) ->
+            PhotoKind.fromCode(code)?.let { CapturedPhoto(it, path) }
+        }
+    ) }
+)
 
 private val PhotoSessionSaver = Saver<PhotoSession?, ArrayList<String>>(
     save = { session ->
         session?.let {
-            arrayListOf(it.tripId, it.eventType).apply { it.photos.forEach { photo -> add(photo.kind.code); add(photo.path) } }
+            arrayListOf(it.tripId, it.eventType, it.comment).apply { it.photos.forEach { photo -> add(photo.kind.code); add(photo.path) } }
         }
     },
     restore = { saved ->
+        val hasComment = saved.size >= 3 && (saved.size - 3) % 2 == 0
         PhotoSession(
             tripId = saved[0],
             eventType = saved[1],
-            photos = saved.drop(2).chunked(2).mapNotNull { (code, path) ->
+            comment = if (hasComment) saved[2] else "",
+            photos = saved.drop(if (hasComment) 3 else 2).chunked(2).mapNotNull { (code, path) ->
                 PhotoKind.fromCode(code)?.let { CapturedPhoto(it, path) }
             }
         )
@@ -324,6 +398,7 @@ private fun PhotoKind.label(): String = when (this) {
     PhotoKind.TRUCK_REAR -> "грузовик сзади"
     PhotoKind.TRUCK_SIDE -> "грузовик сбоку"
     PhotoKind.DOCUMENT -> "документ"
+    PhotoKind.CARGO -> "груз"
 }
 
 @Composable
@@ -459,38 +534,61 @@ private fun MissingPhotosDialog(
 }
 
 @Composable
-private fun TripFailureDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
-    var reason by rememberSaveable { mutableStateOf("") }
-    var comment by rememberSaveable { mutableStateOf("") }
+private fun TripFailureDialog(
+    draft: FailureDraft,
+    clientRefusal: Boolean,
+    cameraDenied: Boolean,
+    onChange: (FailureDraft) -> Unit,
+    onDismiss: () -> Unit,
+    onCapture: () -> Unit,
+    onConfirm: () -> Unit
+) {
     val choices = listOf("Поломка машины", "Клиент не принимает", "Нет подъезда", "Груз не помещается", "Другое")
+    val refusalChoices = listOf(
+        "КлиентНеГотов" to "Клиент не готов принять (время не согласовано)",
+        "Качество" to "Претензия к качеству",
+        "Прочее" to "Другая причина"
+    )
+    val canConfirm = draft.reason.isNotBlank() && (!clientRefusal || draft.reasonCode != null) &&
+        (draft.reasonCode != "Прочее" || draft.comment.isNotBlank()) &&
+        (draft.reasonCode != "Качество" || draft.photos.any { it.kind == PhotoKind.CARGO })
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Не могу выполнить рейс") },
+        title = { Text(if (clientRefusal) "Клиент не принял груз" else "Не могу выполнить рейс") },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("Выберите причину или напишите свою. Рейс останется в списке как невыполненный.")
-                choices.forEach { choice ->
-                    TextButton(onClick = { reason = if (choice == "Другое") "" else choice }) { Text(choice) }
+                Text(if (clientRefusal) "Выберите причину отказа. Рейс останется невыполненным до решения диспетчера." else "Выберите причину или напишите свою. Рейс останется в списке как невыполненный.")
+                if (clientRefusal) refusalChoices.forEach { (code, label) ->
+                    TextButton(onClick = {
+                        onChange(draft.copy(reasonCode = code, reason = if (code == "Прочее") "" else "Клиент не принимает: $label"))
+                    }) { Text((if (draft.reasonCode == code) "✓ " else "") + label) }
+                } else choices.forEach { choice ->
+                    TextButton(onClick = { onChange(draft.copy(reason = if (choice == "Другое") "" else choice)) }) { Text(choice) }
                 }
                 OutlinedTextField(
-                    value = reason,
-                    onValueChange = { reason = it.take(200) },
+                    value = draft.reason,
+                    onValueChange = { onChange(draft.copy(reason = it.take(200))) },
                     label = { Text("Причина (обязательно)") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = comment,
-                    onValueChange = { comment = it },
-                    label = { Text("Комментарий диспетчеру (необязательно)") },
+                    value = draft.comment,
+                    onValueChange = { onChange(draft.copy(comment = it.take(500))) },
+                    label = { Text(if (draft.reasonCode == "Прочее") "Комментарий диспетчеру (обязательно)" else "Комментарий диспетчеру") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (clientRefusal && draft.reasonCode != null) {
+                    if (cameraDenied) Text("Нет доступа к камере. Разрешите её в настройках телефона.", color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(onClick = onCapture) { Text("Сфотографировать груз${if (draft.photos.isEmpty()) "" else " · ${draft.photos.size}"}") }
+                    if (draft.reasonCode == "Качество") Text("При претензии к качеству нужно хотя бы одно фото груза.")
+                }
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(reason.trim(), comment.trim()) }, enabled = reason.isNotBlank()) { Text("Подтвердить") }
+            Button(onClick = onConfirm, enabled = canConfirm) { Text("Подтвердить") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
     )
@@ -529,11 +627,15 @@ private fun TripRow(
             CollapsedHeader(state = state, isActive = isActive)
             if (unloadChanged) {
                 Text(
-                    text = if (state.returnedAfterFailure) "Рейс возвращён: новый адрес ${pointLabel(state.trip.unloadPoint)}"
+                    text = if (state.trip.returnToDepot == true) "Возврат на завод: ${pointLabel(state.trip.unloadPoint)}"
+                        else if (state.returnedAfterFailure) "Рейс возвращён: новый адрес ${pointLabel(state.trip.unloadPoint)}"
                         else "Изменён адрес разгрузки: ${pointLabel(state.trip.unloadPoint)}",
                     color = MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+            if (state.trip.returnToDepot == true && !unloadChanged) {
+                Text("Возврат на завод: ${pointLabel(state.trip.unloadPoint)}", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
             }
             state.trip.trailer.plate?.takeIf { it.isNotBlank() }?.let {
                 LabeledField(label = "Прицеп", value = it)

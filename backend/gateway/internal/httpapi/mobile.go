@@ -13,6 +13,10 @@ func assignmentToResponse(a assignmentXML) assignmentResponse {
 			loaded := strings.EqualFold(trip.CargoRaw, "true")
 			response.CargoInVehicle = &loaded
 		}
+		if trip.ReturnRaw != "" {
+			returning := strings.EqualFold(trip.ReturnRaw, "true")
+			response.ReturnToDepot = &returning
+		}
 		trips = append(trips, response)
 	}
 	return assignmentResponse{
@@ -55,6 +59,7 @@ func eventsRequestToXML(req eventsRequest) eventsXML {
 			Time:       event.Time,
 			Comment:    event.Comment,
 			Reason:     event.Reason,
+			ReasonCode: event.ReasonCode,
 			GeoTag:     geoTagRequestToXML(event.GeoTag),
 		})
 	}

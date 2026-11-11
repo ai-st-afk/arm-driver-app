@@ -9,6 +9,12 @@ import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.data.repository.PhotoKind
 
 class PhotoStepsTest {
+    @Test
+    fun clientRefusalUsesCargoPhotoAndAllowsMoreThanOne() {
+        val steps = photoStepsFor(EventTypes.SRYV)!!
+        assertEquals(listOf(PhotoKind.CARGO), steps.map { it.kind })
+        assertEquals(true, steps.single().allowMore)
+    }
 
     @Test
     fun `loading requires truck rear and side`() {

@@ -105,6 +105,11 @@ internal fun updatedAssignment(
                 nextStage = incoming?.nextStage
             )
             if (incoming?.status == STATUS_FAILED) withoutFacts.copy(status = incoming.status, cancelReason = incoming.cancelReason)
+            else if (prior.status == STATUS_FAILED && incoming?.status == STATUS_ASSIGNED && !incoming.stages?.unloaded.isNullOrBlank()) {
+                // 1С решила оставить груз у клиента: разгрузка уже отмечена
+                // самой 1С, нового действия и ознакомления нет (v1.5).
+                withoutFacts.copy(status = incoming.status, cancelReason = incoming.cancelReason)
+            }
             else withoutFacts
         }
     ) != assignment

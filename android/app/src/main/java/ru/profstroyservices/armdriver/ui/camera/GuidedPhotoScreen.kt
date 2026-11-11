@@ -180,7 +180,7 @@ fun GuidedPhotoScreen(
             Text(
                 text = when {
                     stage is Stage.Review -> "Проверьте снимок"
-                    step.allowMore && sheet > 1 -> "${step.prompt}: лист $sheet"
+                    step.allowMore && sheet > 1 -> "${step.prompt}: ${if (step.kind == PhotoKind.CARGO) "снимок" else "лист"} $sheet"
                     else -> step.prompt
                 },
                 style = MaterialTheme.typography.headlineSmall,
@@ -224,7 +224,7 @@ fun GuidedPhotoScreen(
                                 modifier = Modifier.weight(1f).height(ControlHeight),
                                 border = BorderStroke(2.dp, Color.White),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                            ) { Text("Ещё лист", style = MaterialTheme.typography.labelLarge) }
+                            ) { Text(if (step.kind == PhotoKind.CARGO) "Ещё фото" else "Ещё лист", style = MaterialTheme.typography.labelLarge) }
                         }
                     }
                     Button(

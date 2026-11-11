@@ -22,11 +22,13 @@ private val Document = PhotoStep(
     "Весь лист в кадре, подпись и печать должны читаться",
     allowMore = true
 )
+private val Cargo = PhotoStep(PhotoKind.CARGO, "Сфотографируйте груз", "Покажите причину отказа клиента", allowMore = true)
 
 // Обязательные снимки этапа (решение автора 2026-10-27). null — этап без фото.
 fun photoStepsFor(eventType: String): List<PhotoStep>? = when (eventType) {
     EventTypes.ZAGRUZILSYA_V_PUT -> listOf(TruckRear, TruckSideLoaded)
     EventTypes.RAZGRUZILSYA -> listOf(TruckRear, TruckSideUnloaded, Document)
+    EventTypes.SRYV -> listOf(Cargo)
     else -> null
 }
 

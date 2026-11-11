@@ -133,13 +133,29 @@ class RoadmapViewModel @Inject constructor(
         }
     }
 
-    fun onTripFailure(tripId: String, reason: String, comment: String) {
-        val state = markableState() ?: return
-        val progress = state.trips.firstOrNull { it.trip.id == tripId } ?: return
+    fun onTripFailure(tripId: String, reason: String, comment: String, reasonCode: String?, photos: List<CapturedPhoto>) {
+        val state = markableState()
+        val progress = state?.trips?.firstOrNull { it.trip.id == tripId }
         val cleanReason = reason.trim()
-        if (progress.isResolved || progress.isInactive || cleanReason.isEmpty() || cleanReason.length > 200) return
+        val cleanComment = comment.trim()
+        if (progress == null || progress.isResolved || progress.isInactive || cleanReason.isEmpty() || cleanReason.length > 200 ||
+            cleanComment.length > 500 || (progress.isClientRefusalAvailable && reasonCode !in setOf("КлиентНеГотов", "Качество", "Прочее")) ||
+            (!progress.isClientRefusalAvailable && reasonCode != null) || (reasonCode == "Прочее" && cleanComment.isEmpty()) ||
+            (reasonCode == "Качество" && photos.none { it.kind == ru.profstroyservices.armdriver.data.repository.PhotoKind.CARGO })
+        ) {
+            photos.forEach { File(it.path).delete() }
+            return
+        }
         viewModelScope.launch {
-            enqueue(state, EventTypes.SRYV, tripId, comment = comment.trim(), reason = cleanReason) ?: return@launch
+            val driverId = settings.driverId.first() ?: return@launch
+            val eventId = enqueue(state, EventTypes.SRYV, tripId, comment = cleanComment, reason = cleanReason, reasonCode = reasonCode)
+            if (eventId == null) {
+                photos.forEach { File(it.path).delete() }
+                return@launch
+            }
+            photos.forEach { photo ->
+                documents.enqueue(File(photo.path), driverId, state.id, tripId, eventId, photo.kind)
+            }
             emitFeedback("Не могу выполнить рейс", null)
             flushJob?.cancel()
             queue.flush()
@@ -185,7 +201,7 @@ class RoadmapViewModel @Inject constructor(
     // закрыть, поэтому причина обязательна и уходит в 1С комментарием.
     // Быстрой отмены в снекбаре нет: откатить можно кнопкой «Отмена» в
     // карточке, вместе с фото (см. onStepBack).
-    fun onStepPhotos(tripId: String, type: String, photos: List<CapturedPhoto>, missingReason: String? = null) {
+    fun onStepPhotos(tripId: String, type: String, photos: List<CapturedPhoto>, missingReason: String? = null, comment: String = "") {
         val state = markableState()
         if (state == null || !state.canMarkTripStep(tripId, type)) {
             photos.forEach { File(it.path).delete() }
@@ -193,12 +209,12 @@ class RoadmapViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val driverId = settings.driverId.first() ?: return@launch
-            val comment = when {
-                missingReason == null -> ""
-                photos.isEmpty() -> "Без фото: $missingReason"
-                else -> "Не все фото: $missingReason"
+            val eventComment = when {
+                missingReason == null -> comment
+                photos.isEmpty() -> listOf(comment, "Без фото: $missingReason").filter { it.isNotBlank() }.joinToString("; ")
+                else -> listOf(comment, "Не все фото: $missingReason").filter { it.isNotBlank() }.joinToString("; ")
             }
-            val eventId = enqueue(state, type, tripId, comment)
+            val eventId = enqueue(state, type, tripId, eventComment.take(500))
             if (eventId == null) {
                 // Шаг уже был отмечен — повторно снимки не нужны.
                 photos.forEach { File(it.path).delete() }
@@ -220,7 +236,7 @@ class RoadmapViewModel @Inject constructor(
         }
     }
 
-    private suspend fun enqueue(state: AssignmentState, type: String, tripId: String?, comment: String = "", reason: String? = null): String? {
+    private suspend fun enqueue(state: AssignmentState, type: String, tripId: String?, comment: String = "", reason: String? = null, reasonCode: String? = null): String? {
         val driverId = settings.driverId.first() ?: return null
         return eventQueue.enqueue(
             type = type,
@@ -229,7 +245,8 @@ class RoadmapViewModel @Inject constructor(
             assignmentVersion = state.assignment.version,
             tripId = tripId,
             comment = comment,
-            reason = reason
+            reason = reason,
+            reasonCode = reasonCode
         )
     }
 

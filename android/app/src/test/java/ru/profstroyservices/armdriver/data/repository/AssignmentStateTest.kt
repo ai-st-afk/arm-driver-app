@@ -253,6 +253,36 @@ class AssignmentStateTest {
     }
 
     @Test
+    fun returnTripUsesUnloadingStepsButCannotReportSecondClientRefusal() {
+        val state = assignmentState(
+            assignment("A", trips = listOf(trip("A-t1", 1).copy(
+                returnToDepot = true,
+                nextStage = EventTypes.PRIBYL_NA_RAZGRUZKU,
+                stages = ru.profstroyservices.armdriver.data.network.TripStagesDto(loaded = "2026-11-11T09:00:00+03:00")
+            ))),
+            listOf(event("A", EventTypes.OZNAKOMLENIE), event("A", EventTypes.NACHALO_SMENY))
+        )
+        val progress = state.trips.single()
+        assertEquals(EventTypes.PRIBYL_NA_RAZGRUZKU, progress.nextAction)
+        assertFalse(progress.isClientRefusalAvailable)
+    }
+
+    @Test
+    fun dispatcherCompletedTripIsResolvedWithoutLocalUnloadEvent() {
+        val state = assignmentState(
+            assignment("A", trips = listOf(trip("A-t1", 1).copy(
+                status = STATUS_ASSIGNED,
+                nextStage = "",
+                stages = ru.profstroyservices.armdriver.data.network.TripStagesDto(unloaded = "2026-11-11T12:00:00+03:00")
+            ))),
+            listOf(event("A", EventTypes.OZNAKOMLENIE), event("A", EventTypes.NACHALO_SMENY))
+        )
+        assertTrue(state.trips.single().isCompleted)
+        assertTrue(state.trips.single().isResolved)
+        assertNull(state.trips.single().nextAction)
+    }
+
+    @Test
     fun newArrivalAfterRerouteAdvancesToUnloading() {
         val events = listOf(
             event("A", EventTypes.PRIBYL_NA_POGRUZKU, "A-t1"),

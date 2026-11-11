@@ -60,3 +60,9 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
         db.execSQL("ALTER TABLE cached_assignments ADD COLUMN changedUnloadTripIds TEXT NOT NULL DEFAULT ''")
     }
 }
+
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pending_events ADD COLUMN reasonCode TEXT")
+    }
+}

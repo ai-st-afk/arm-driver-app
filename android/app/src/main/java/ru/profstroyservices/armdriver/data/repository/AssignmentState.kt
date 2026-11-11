@@ -32,6 +32,8 @@ data class TripProgress(val trip: TripDto, val doneTypes: Set<String>, val failu
     val isInactive: Boolean get() = !trip.status.equals(STATUS_ASSIGNED, ignoreCase = true) &&
         !trip.status.equals("Активна", ignoreCase = true)
     val isCompleted: Boolean get() = EventTypes.RAZGRUZILSYA in doneTypes
+    val isClientRefusalAvailable: Boolean get() = EventTypes.PRIBYL_NA_RAZGRUZKU in doneTypes &&
+        !isCompleted && trip.returnToDepot != true
     val cargoInVehicle: Boolean get() = trip.cargoInVehicle == true ||
         (EventTypes.ZAGRUZILSYA_V_PUT in doneTypes && !isCompleted)
     val isFailed: Boolean get() = trip.status.equals(STATUS_FAILED, ignoreCase = true) || failureSent

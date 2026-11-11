@@ -5,7 +5,8 @@ package ru.profstroyservices.armdriver.data.repository
 enum class PhotoKind(val code: String) {
     TRUCK_REAR("truck_rear"),
     TRUCK_SIDE("truck_side"),
-    DOCUMENT("document");
+    DOCUMENT("document"),
+    CARGO("cargo");
 
     companion object {
         fun fromCode(code: String): PhotoKind? = entries.firstOrNull { it.code == code }

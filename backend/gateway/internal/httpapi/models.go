@@ -111,6 +111,7 @@ type tripXML struct {
 	BasisTripID  string           `xml:"ЕздкаОснование" json:"basis_trip_id,omitempty"`
 	Stages       *tripStagesXML   `xml:"Этапы" json:"stages,omitempty"`
 	CargoRaw     string           `xml:"ГрузВМашине" json:"-"`
+	ReturnRaw    string           `xml:"Возврат" json:"-"`
 	NextStage    *string          `xml:"СледующийЭтап" json:"next_stage,omitempty"`
 	Trailer      trailerXML       `xml:"Прицеп" json:"trailer,omitempty"`
 	LoadPoint    pointXML         `xml:"ПунктПогрузки" json:"load_point"`
@@ -132,6 +133,7 @@ type tripStagesXML struct {
 type tripResponse struct {
 	tripXML
 	CargoInVehicle *bool `json:"cargo_in_vehicle,omitempty"`
+	ReturnToDepot  *bool `json:"return_to_depot,omitempty"`
 }
 
 type eventsXML struct {
@@ -148,6 +150,7 @@ type eventXML struct {
 	Time       string     `xml:"Время"`
 	Comment    string     `xml:"Комментарий"`
 	Reason     string     `xml:"Причина,omitempty"`
+	ReasonCode string     `xml:"КодПричины,omitempty"`
 	GeoTag     *geoTagXML `xml:"Геометка,omitempty"`
 }
 
@@ -245,6 +248,7 @@ type eventRequest struct {
 	Time         string         `json:"time"`
 	Comment      string         `json:"comment,omitempty"`
 	Reason       string         `json:"reason,omitempty"`
+	ReasonCode   string         `json:"reason_code,omitempty"`
 	GeoTag       *geoTagRequest `json:"geo,omitempty"`
 }
 

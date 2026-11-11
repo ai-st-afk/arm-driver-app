@@ -44,7 +44,8 @@ class EventQueueRepository @Inject constructor(
         assignmentVersion: Int,
         tripId: String? = null,
         comment: String = "",
-        reason: String? = null
+        reason: String? = null,
+        reasonCode: String? = null
     ): String? {
         val duplicate = when {
             type == EventTypes.OZNAKOMLENIE -> dao.existsForVersion(assignmentId, type, assignmentVersion)
@@ -69,6 +70,7 @@ class EventQueueRepository @Inject constructor(
                 time = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                 comment = comment,
                 reason = reason,
+                reasonCode = reasonCode,
                 assignmentVersion = assignmentVersion,
                 latitude = geoFix?.latitude,
                 longitude = geoFix?.longitude,

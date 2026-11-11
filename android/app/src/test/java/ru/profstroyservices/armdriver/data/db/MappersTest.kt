@@ -62,4 +62,11 @@ class MappersTest {
         assertNull(request.geo!!.accuracy)
         assertNull(request.geo!!.fixTime)
     }
+
+    @Test
+    fun `failure reason code survives event mapping`() {
+        val request = entity().copy(type = "Срыв", reason = "Скол", reasonCode = "Качество").toEventRequest()
+        assertEquals("Качество", request.reasonCode)
+        assertEquals("Качество", request.toEntity().reasonCode)
+    }
 }

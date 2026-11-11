@@ -91,6 +91,7 @@ data class TripDto(
     @SerialName("basis_trip_id") val basisTripId: String? = null,
     val stages: TripStagesDto? = null,
     @SerialName("cargo_in_vehicle") val cargoInVehicle: Boolean? = null,
+    @SerialName("return_to_depot") val returnToDepot: Boolean = false,
     @SerialName("next_stage") val nextStage: String? = null,
     val trailer: TrailerDto = TrailerDto(),
     @SerialName("load_point") val loadPoint: PointDto,
@@ -163,6 +164,7 @@ data class EventRequest(
     val time: String,
     val comment: String = "",
     val reason: String? = null,
+    @SerialName("reason_code") val reasonCode: String? = null,
     val geo: GeoTagRequest? = null
 )
 

@@ -116,4 +116,31 @@ class AssignmentCacheTest {
         assertEquals(2, updated.ackRequiredVersion)
         assertEquals(EventTypes.PRIBYL_NA_RAZGRUZKU, updated.toAssignmentDto().trips.single().nextStage)
     }
+
+    @Test
+    fun `return to depot changes route and requires acknowledgement`() {
+        val old = assignment.toEntity("driver", 100).copy(ackRequiredVersion = 2)
+        val returned = assignment.copy(version = 3, trips = listOf(assignment.trips.single().copy(
+            returnToDepot = true,
+            unloadPoint = PointDto(address = "Склад завода"),
+            nextStage = EventTypes.PRIBYL_NA_RAZGRUZKU
+        )))
+        val updated = updatedAssignment(returned, old, "driver", 200)!!
+        assertEquals(3, updated.ackRequiredVersion)
+        assertEquals(true, updated.toAssignmentDto().trips.single().returnToDepot)
+    }
+
+    @Test
+    fun `dispatcher completed unloading after refusal needs no acknowledgement`() {
+        val failed = assignment.copy(trips = listOf(assignment.trips.single().copy(
+            status = STATUS_FAILED, cancelReason = "Клиент не принял"
+        ))).toEntity("driver", 100).copy(ackRequiredVersion = 2)
+        val completed = assignment.copy(version = 3, trips = listOf(assignment.trips.single().copy(
+            status = STATUS_ASSIGNED,
+            stages = TripStagesDto(unloaded = "2026-11-11T12:00:00+03:00"),
+            nextStage = ""
+        )))
+        val updated = updatedAssignment(completed, failed, "driver", 200)!!
+        assertEquals(2, updated.ackRequiredVersion)
+    }
 }

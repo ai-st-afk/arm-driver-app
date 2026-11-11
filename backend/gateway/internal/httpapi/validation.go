@@ -97,6 +97,9 @@ func validateAssignment(a assignmentXML) error {
 		if trip.CargoRaw != "" && !strings.EqualFold(trip.CargoRaw, "true") && !strings.EqualFold(trip.CargoRaw, "false") {
 			return fmt.Errorf("ездка %s: некорректный признак ГрузВМашине: %q", trip.ID, trip.CargoRaw)
 		}
+		if trip.ReturnRaw != "" && !strings.EqualFold(trip.ReturnRaw, "true") && !strings.EqualFold(trip.ReturnRaw, "false") {
+			return fmt.Errorf("ездка %s: некорректный признак Возврат: %q", trip.ID, trip.ReturnRaw)
+		}
 		if trip.NextStage != nil {
 			switch *trip.NextStage {
 			case "", "ПрибылНаПогрузку", "ЗагрузилсяВПуть", "ПрибылНаРазгрузку", "Разгрузился":
@@ -158,6 +161,12 @@ func validateEvents(batch eventsXML) error {
 		}
 		if _, err := time.Parse(time.RFC3339, event.Time); err != nil {
 			return fmt.Errorf("событие %s: некорректное время: %w", event.ID, err)
+		}
+		if event.ReasonCode != "" && event.Type != "Срыв" {
+			return fmt.Errorf("событие %s: КодПричины допустим только для Срыв", event.ID)
+		}
+		if event.ReasonCode != "" && event.ReasonCode != "КлиентНеГотов" && event.ReasonCode != "Качество" && event.ReasonCode != "Прочее" {
+			return fmt.Errorf("событие %s: неизвестный КодПричины: %q", event.ID, event.ReasonCode)
 		}
 		switch {
 		case assignmentLevelEvents[event.Type]:

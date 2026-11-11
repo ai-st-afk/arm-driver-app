@@ -17,6 +17,7 @@ data class PendingEventEntity(
     val time: String,
     val comment: String,
     val reason: String? = null,
+    val reasonCode: String? = null,
     val sent: Boolean = false,
     // Текст отказа 1С по этому событию (поштучный ответ, инвариант 2).
     // Водителю без него видно только «не отправлено», а не что чинить.
