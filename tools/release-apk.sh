@@ -4,7 +4,10 @@
 #   tools/release-apk.sh              — собрать, подписать и выложить на шлюз
 #   tools/release-apk.sh --no-upload  — только собрать и подписать (проверка)
 #
-# Выкладка: ARM_DRIVER_SERVER=user@host (куда ходим по ssh), необязательно
+# Выкладка: ARM_DRIVER_SERVER=admin-ai@192.168.26.163 (внутренний адрес srv-ai)
+# из офиса напрямую, из дома через L2TP VPN; см. AGENTS.md.
+# Не использовать публичный HTTPS-домен как SSH-адрес.
+# Необязательно:
 # ARM_DRIVER_SSH_PASS_FILE=файл-с-паролем (если вход по паролю, нужен sshpass).
 # На сервере APK и latest.json кладутся в ~/apps/arm-driver-app/releases —
 # эта папка смонтирована в шлюз (docker-compose.yml), перезапуск не нужен.

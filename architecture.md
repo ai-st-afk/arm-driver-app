@@ -496,6 +496,13 @@ flowchart LR
 Это — как оно физически разложено на хосте. Общая схема всей сети (домены,
 соседние проекты) — `~/go/src/infra/ARCHITECTURE.md`.
 
+SSH для выкладки: `admin-ai@192.168.26.163` (внутренний адрес `srv-ai`).
+Из офиса с адресом `192.168.26.x` доступен напрямую; из дома — через рабочий
+L2TP VPN. Публичный `arm-driver.profstroy-services.ru` / `92.255.235.125` —
+веб-вход через Traefik (80/443), не адрес для SSH-публикации. На Mac имя
+`srv-ai` может не разрешаться, поэтому в командах выпуска используем IP.
+Точный порядок и ключ — `AGENTS.md` → «APK и самообновление телефонов».
+
 ```mermaid
 flowchart LR
     Traefik["Traefik\n(infra, сеть edge)"] -->|"arm-driver.profstroy-services.ru"| Gateway

@@ -152,14 +152,22 @@ Backend-разработчик (Go, интеграции, PostgreSQL). Android/K
 без вопросов, когда водитель свернул приложение (не посреди съёмки этапа).
 
 - Выпуск версии для водителей: поднять `versionCode` (обязательно — телефоны
-  берут только больший) и `versionName`, затем
-  `ARM_DRIVER_SERVER=user@host [ARM_DRIVER_SSH_PASS_FILE=файл] tools/release-apk.sh`.
-  Для доступа через рабочий L2TP VPN при включённом Happ Plus нужны
-  `ARM_DRIVER_SSH_KEY_FILE=~/.ssh/id_ed25519_arm_driver` и
-  `ARM_DRIVER_SSH_PROXY_COMMAND='/usr/bin/nc -b ppp0 -G 8 %h %p'`.
+  берут только больший) и `versionName`. Сервер выпуска —
+  **`admin-ai@192.168.26.163`** (`srv-ai`, внутренний адрес); публичный
+  `arm-driver.profstroy-services.ru` обслуживает HTTPS, не SSH для выкладки.
+  Из офиса (сеть `192.168.26.0/24`):
+  `ARM_DRIVER_SERVER=admin-ai@192.168.26.163 ARM_DRIVER_SSH_KEY_FILE="$HOME/.ssh/id_ed25519_arm_driver" tools/release-apk.sh`.
+  Сначала проверить вход:
+  `ssh -o IdentitiesOnly=yes -i "$HOME/.ssh/id_ed25519_arm_driver" admin-ai@192.168.26.163 hostname`
+  (ответ должен быть `srv-ai`). Из дома через рабочий L2TP VPN при включённом
+  Happ Plus — та же команда выпуска с дополнительным
+  `ARM_DRIVER_SSH_PROXY_COMMAND='/usr/bin/nc -b ppp0 -G 8 %h %p'`;
+  сначала убедиться, что есть интерфейс `ppp0`.
   Скрипт собирает release, подписывает, выкладывает на сервер и кладёт копию в
   `~/Desktop/arm-driver-apk/` для ручной установки на новый телефон. Дальше —
-  commit → tag → push, как выше.
+  сверить SHA-256 APK на сервере и ответ `/api/mobile/app/latest`, затем
+  commit → tag → push, как выше. Если `aapt2` завершается ошибкой locale,
+  запускать с префиксом `env -u LC_ALL -u LC_CTYPE LANG=C`.
 - Подписывать только этим скриптом. Ключи — в `~/.arm-driver/` на Mac автора,
   в репозиторий не класть никогда. Потеря папки = обновления больше не встанут
   поверх установленного приложения (каждый телефон — удалять и ставить заново,
