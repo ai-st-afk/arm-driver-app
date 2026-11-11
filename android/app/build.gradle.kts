@@ -35,10 +35,10 @@ android {
 
     defaultConfig {
         applicationId = "ru.profstroyservices.armdriver"
-        minSdk = 33
+        minSdk = 30
         targetSdk = 35
-        versionCode = 45
-        versionName = "0.9.8"
+        versionCode = 46
+        versionName = "0.9.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -14,7 +14,7 @@ Kotlin, Jetpack Compose, MVVM, Hilt, Retrofit/OkHttp, Room, FCM.
    `gateway.mobileToken` (см. `.env` на сервере или спросить у автора).
    Файл не коммитится.
 3. Дождаться Gradle sync, собрать/запустить на эмуляторе или устройстве
-   Android 13+.
+   Android 11+.
 
 ## Структура
 

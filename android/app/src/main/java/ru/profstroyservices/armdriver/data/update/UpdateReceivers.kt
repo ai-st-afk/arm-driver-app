@@ -1,12 +1,16 @@
 package ru.profstroyservices.armdriver.data.update
 
+import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.ActivityCompat
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -34,7 +38,12 @@ class UpdateStatusReceiver : BroadcastReceiver() {
             .onInstallStatus(
                 status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE),
                 systemMessage = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE),
-                confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                confirm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_INTENT)
+                }
             )
     }
 }
@@ -58,6 +67,10 @@ class AppUpdatedReceiver : BroadcastReceiver() {
             .setContentIntent(openApp)
             .setAutoCancel(true)
             .build()
-        runCatching { NotificationManagerCompat.from(context).notify(UPDATED_NOTIFICATION_ID, notification) }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching { NotificationManagerCompat.from(context).notify(UPDATED_NOTIFICATION_ID, notification) }
+        }
     }
 }
