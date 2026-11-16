@@ -2,6 +2,7 @@ package ru.profstroyservices.armdriver.ui.settings
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -90,7 +91,7 @@ fun SettingsScreen(
                     onClick = { context.startActivity(installPermissionIntent(context.packageName)) },
                     modifier = Modifier.fillMaxWidth().height(ButtonHeight)
                 ) {
-                    Text("Разрешить автообновление", style = MaterialTheme.typography.labelLarge)
+                    Text("Разрешить установку обновлений", style = MaterialTheme.typography.labelLarge)
                 }
             }
             OutlinedButton(
@@ -114,9 +115,13 @@ private fun updateStatusText(state: UpdateState, installAllowed: Boolean): Strin
     UpdateState.UpToDate -> "Установлена последняя версия."
     is UpdateState.Downloading -> "Скачивается версия ${state.versionName}: ${state.percent}%"
     is UpdateState.Ready -> if (installAllowed) {
-        "Версия ${state.versionName} скачана и установится, когда свернёте приложение."
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            "Версия ${state.versionName} скачана и установится, когда свернёте приложение."
+        } else {
+            "Версия ${state.versionName} скачана. Подтвердите установку в системном окне."
+        }
     } else {
-        "Версия ${state.versionName} скачана. Чтобы она установилась, разрешите автообновление."
+        "Версия ${state.versionName} скачана. Чтобы она установилась, разрешите установку обновлений."
     }
     is UpdateState.Installing -> "Устанавливается версия ${state.versionName}…"
     is UpdateState.NeedsConfirmation -> "Версия ${state.versionName} ждёт подтверждения установки."
