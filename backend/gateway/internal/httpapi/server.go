@@ -61,6 +61,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/mobile/drivers/{id}", s.driverByID)
 	mux.HandleFunc("GET /api/mobile/app/latest", s.latestAppVersion)
 	mux.HandleFunc("GET /api/mobile/app/download", s.downloadApp)
+	mux.HandleFunc("GET /download", s.publicDownloadApp)
 	return s.recover(s.requestLog(mux))
 }
 
@@ -851,6 +852,8 @@ type responseWriter struct {
 	status int
 	bytes  int
 }
+
+func (w *responseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *responseWriter) WriteHeader(statusCode int) {
 	w.status = statusCode

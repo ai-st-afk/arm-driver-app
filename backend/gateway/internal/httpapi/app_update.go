@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Самообновление приложения: телефоны водителей сами берут новую версию со
@@ -81,6 +83,20 @@ func (s *Server) downloadApp(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "неверный X-Auth-Token")
 		return
 	}
+	s.serveAppFile(w, r, false)
+}
+
+// Постоянная ссылка для первой установки: сканер QR и браузер не умеют
+// передать мобильный токен в заголовке. Открыт только APK, не данные 1С.
+func (s *Server) publicDownloadApp(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// Обычный WriteTimeout шлюза — 30 секунд, что мало для APK на слабой сети.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Minute))
+	s.serveAppFile(w, r, true)
+}
+
+func (s *Server) serveAppFile(w http.ResponseWriter, r *http.Request, attachment bool) {
 	manifest, path, err := s.loadRelease()
 	if errors.Is(err, errNoRelease) {
 		writeJSONError(w, http.StatusNotFound, "no_release", "обновлений пока не публиковали")
@@ -105,5 +121,8 @@ func (s *Server) downloadApp(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
 	w.Header().Set("ETag", `"`+manifest.SHA256+`"`)
+	if attachment {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": manifest.File}))
+	}
 	http.ServeContent(w, r, manifest.File, info.ModTime(), file)
 }

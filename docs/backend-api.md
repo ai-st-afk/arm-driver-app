@@ -291,6 +291,16 @@ POST ${ONE_C_BASE_URL}/prtr_driver/events
 версию, файл отдаётся целиком. Телефон сверяет `sha256`, имя пакета и
 `versionCode` скачанного файла, подпись проверяет сам Android при установке.
 
+### `GET /download`
+
+Постоянная публичная ссылка для первой установки на телефон:
+`https://arm-driver.profstroy-services.ru/download`. Заголовок
+`X-Auth-Token` не нужен: браузер и QR-сканер его не передают. Шлюз на каждый
+запрос читает тот же `latest.json` и отдаёт текущий APK с именем файла в
+`Content-Disposition`; ответ не кэшируется. Остальные мобильные API, включая
+`/api/mobile/app/download`, по-прежнему требуют токен. QR для печати —
+`docs/driver-app-download-qr.png`.
+
 ### `POST /api/mobile/documents`
 
 Фото этапа рейса (снимается только камерой приложения, не из галереи).

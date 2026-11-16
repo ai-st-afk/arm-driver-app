@@ -112,3 +112,44 @@ func TestDownloadAppRejectsPathInManifest(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestPublicDownloadAlwaysServesCurrentReleaseWithoutToken(t *testing.T) {
+	api := newReleaseServer(t, testManifest, []byte("0123456789"))
+
+	get := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		api.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/download", nil))
+		return rec
+	}
+	first := get()
+	if first.Code != http.StatusOK || first.Body.String() != "0123456789" {
+		t.Fatalf("first download: status = %d, body = %q", first.Code, first.Body.String())
+	}
+	if first.Header().Get("Content-Disposition") != `attachment; filename=arm-driver-0.9.0.apk` {
+		t.Fatalf("filename = %q", first.Header().Get("Content-Disposition"))
+	}
+	if first.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("cache-control = %q", first.Header().Get("Cache-Control"))
+	}
+
+	updated := `{"version_code":38,"version_name":"0.9.1","file":"arm-driver-0.9.1.apk","sha256":"def456","size":3}`
+	if err := os.WriteFile(filepath.Join(api.cfg.ReleasesDir, "arm-driver-0.9.1.apk"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(api.cfg.ReleasesDir, "latest.json"), []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second := get()
+	if second.Code != http.StatusOK || second.Body.String() != "new" {
+		t.Fatalf("updated download: status = %d, body = %q", second.Code, second.Body.String())
+	}
+	if second.Header().Get("Content-Disposition") != `attachment; filename=arm-driver-0.9.1.apk` {
+		t.Fatalf("updated filename = %q", second.Header().Get("Content-Disposition"))
+	}
+
+	protected := httptest.NewRecorder()
+	api.Routes().ServeHTTP(protected, httptest.NewRequest(http.MethodGet, "/api/mobile/app/download", nil))
+	if protected.Code != http.StatusUnauthorized {
+		t.Fatalf("authenticated endpoint without token: status = %d", protected.Code)
+	}
+}
