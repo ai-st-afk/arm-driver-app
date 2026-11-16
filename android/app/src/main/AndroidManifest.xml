@@ -2,8 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- minSdk уже 33 — разрешение обязательно на всех поддерживаемых
-         версиях, запрашивается при первом запуске (см. MainActivity). -->
+    <!-- Разрешение на уведомления запрашивается при первом запуске только
+         на Android 13+ (см. MainActivity). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Разовая геометка к событию в момент нажатия кнопки, не слежение за
          маршрутом — поэтому ACCESS_BACKGROUND_LOCATION не нужен, только

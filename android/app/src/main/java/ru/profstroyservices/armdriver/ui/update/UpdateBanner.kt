@@ -2,6 +2,7 @@ package ru.profstroyservices.armdriver.ui.update
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -77,8 +78,12 @@ fun UpdateBanner(viewModel: UpdateViewModel = hiltViewModel()) {
         is UpdateState.Ready -> if (installAllowed) {
             BannerRow(
                 title = "Готова версия ${current.versionName}",
-                text = "Установится сама, когда свернёте приложение. «Установить сейчас» закроет его на несколько секунд.",
-                action = "Установить сейчас",
+                text = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    "Установится сама, когда свернёте приложение. «Установить сейчас» закроет его на несколько секунд."
+                } else {
+                    "На Android 10 и 11 подтвердите обновление в системном окне."
+                },
+                action = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "Установить сейчас" else "Установить",
                 onAction = viewModel::installNow
             )
         } else {
@@ -94,8 +99,12 @@ fun UpdateBanner(viewModel: UpdateViewModel = hiltViewModel()) {
 @Composable
 private fun PermissionBanner(context: android.content.Context, onDismiss: (() -> Unit)?) {
     BannerRow(
-        title = "Разрешите автообновление",
-        text = "Один раз включите «Разрешить установку» — дальше новые версии будут ставиться сами.",
+        title = "Разрешите установку обновлений",
+        text = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            "Один раз включите «Разрешить установку» — дальше новые версии будут ставиться сами."
+        } else {
+            "Включите «Разрешить установку». На Android 10 и 11 каждое обновление нужно подтверждать в системном окне."
+        },
         action = "Разрешить",
         onAction = { context.startActivity(installPermissionIntent(context.packageName)) },
         onDismiss = onDismiss
