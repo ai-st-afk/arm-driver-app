@@ -12,7 +12,20 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import ru.profstroyservices.armdriver.data.location.GeoTagProvider
@@ -31,7 +44,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             ArmDriverTheme {
                 RequestStartupPermissions(onLocationGranted = geoTagProvider::startWarming)
-                AppNavHost()
+                Column(Modifier.fillMaxSize()) {
+                    if (BuildConfig.IS_TEST_BUILD) {
+                        Text(
+                            text = "ТЕСТОВАЯ БАЗА · test3",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.errorContainer)
+                                .statusBarsPadding()
+                                .padding(8.dp),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    Box(Modifier.weight(1f)) { AppNavHost() }
+                }
             }
         }
     }

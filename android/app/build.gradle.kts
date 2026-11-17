@@ -47,10 +47,12 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 29
         targetSdk = 35
-        versionCode = 55
-        versionName = if (buildTarget == "test3") "0.9.17-test3" else "0.9.17"
+        versionCode = if (buildTarget == "test3") 56 else 55
+        versionName = if (buildTarget == "test3") "0.9.18-test3" else "0.9.17"
         manifestPlaceholders["appLabel"] =
             if (buildTarget == "test3") "АРМ водителя (ТЕСТ)" else "АРМ водителя"
+
+        buildConfigField("boolean", "IS_TEST_BUILD", (buildTarget == "test3").toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
