@@ -13,7 +13,8 @@
 # Для боевого шлюза задайте ARM_DRIVER_REMOTE_RELEASES_DIR=apps/arm-driver-app/releases-prod,
 # ARM_DRIVER_GATEWAY_BASE_URL=https://arm-driver.profstroy-services.ru/prod/,
 # ARM_DRIVER_MOBILE_TOKEN_FILE=путь-к-файлу-с-мобильным-токеном и
-# ARM_DRIVER_APK_LABEL=prod. Обе папки смонтированы в свои шлюзы; перезапуск не нужен.
+# ARM_DRIVER_BUILD_TARGET=prod. Для test3: ARM_DRIVER_BUILD_TARGET=test3,
+# корневой шлюз / и каталог releases. Обе папки смонтированы отдельно.
 # ARM_DRIVER_MIN_SUPPORTED_VERSION_CODE=код версии, ниже которой следующий рейс
 # недоступен до установки APK; по умолчанию 0 (обычное обновление).
 #
@@ -32,6 +33,28 @@ SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 BT="$(ls -d "$SDK"/build-tools/*/ | sort -V | tail -1)"
 OUT="$ROOT/android/app/build/publish"
 REMOTE_DIR="${ARM_DRIVER_REMOTE_RELEASES_DIR:-apps/arm-driver-app/releases}"
+case "$REMOTE_DIR" in
+  apps/arm-driver-app/releases) DEFAULT_TARGET=test3 ;;
+  apps/arm-driver-app/releases-prod) DEFAULT_TARGET=prod ;;
+  *) DEFAULT_TARGET=unknown ;;
+esac
+BUILD_TARGET="${ARM_DRIVER_BUILD_TARGET:-$DEFAULT_TARGET}"
+
+if [ "$UPLOAD" = 1 ]; then
+  case "$REMOTE_DIR:$BUILD_TARGET" in
+    apps/arm-driver-app/releases:test3|apps/arm-driver-app/releases-prod:prod) ;;
+    *) echo "несоответствие сборки $BUILD_TARGET и каталога $REMOTE_DIR" >&2; exit 1 ;;
+  esac
+fi
+if [ "$BUILD_TARGET" = test3 ] && [ "${ARM_DRIVER_GATEWAY_BASE_URL:-https://arm-driver.profstroy-services.ru/}" != "https://arm-driver.profstroy-services.ru/" ]; then
+  echo "тестовая сборка должна использовать тестовый шлюз /" >&2
+  exit 1
+fi
+if [ "$BUILD_TARGET" = prod ] && [ "${ARM_DRIVER_GATEWAY_BASE_URL:-}" != "https://arm-driver.profstroy-services.ru/prod/" ] && [ "$UPLOAD" = 1 ]; then
+  echo "боевая сборка должна использовать шлюз /prod/" >&2
+  exit 1
+fi
+export ARM_DRIVER_BUILD_TARGET="$BUILD_TARGET"
 
 if [ -n "${ARM_DRIVER_MOBILE_TOKEN_FILE:-}" ]; then
   [ -f "$ARM_DRIVER_MOBILE_TOKEN_FILE" ] || { echo "нет файла мобильного токена" >&2; exit 1; }
@@ -112,5 +135,5 @@ fi
   && mv .$APK.tmp $APK && mv .latest.json.tmp latest.json"
 # Тот же файл — для ручной установки на новый телефон.
 mkdir -p "$HOME/Desktop/arm-driver-apk"
-cp "$OUT/$APK" "$HOME/Desktop/arm-driver-apk/arm-driver${ARM_DRIVER_APK_LABEL:+-$ARM_DRIVER_APK_LABEL}-v$VERSION_NAME.apk"
+cp "$OUT/$APK" "$HOME/Desktop/arm-driver-apk/arm-driver-${BUILD_TARGET}-v$VERSION_NAME.apk"
 echo "опубликовано: $VERSION_NAME — телефоны заберут при следующем открытии приложения"

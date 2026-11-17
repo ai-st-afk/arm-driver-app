@@ -33,6 +33,12 @@ fun localProperty(key: String, default: String): String =
         else -> null
     } ?: localProperties.getProperty(key) ?: default)
 
+val buildTarget = System.getenv("ARM_DRIVER_BUILD_TARGET")
+    ?: if (System.getenv("ARM_DRIVER_GATEWAY_BASE_URL")?.contains("/prod/") == true) "prod" else "test3"
+require(buildTarget == "prod" || buildTarget == "test3") {
+    "ARM_DRIVER_BUILD_TARGET must be prod or test3"
+}
+
 android {
     namespace = "ru.profstroyservices.armdriver"
     compileSdk = 35
@@ -42,7 +48,9 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 55
-        versionName = "0.9.17"
+        versionName = if (buildTarget == "test3") "0.9.17-test3" else "0.9.17"
+        manifestPlaceholders["appLabel"] =
+            if (buildTarget == "test3") "АРМ водителя (ТЕСТ)" else "АРМ водителя"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -312,6 +312,10 @@ POST ${ONE_C_BASE_URL}/prtr_driver/events
 `Content-Disposition`; ответ не кэшируется. Остальные мобильные API, включая
 `/api/mobile/app/download`, по-прежнему требуют токен. QR для печати —
 `docs/driver-app-download-qr.png` (test3) и `docs/driver-app-prod-download-qr.png` (рабочая база).
+Тестовая сборка имеет имя файла и `version_name` с суффиксом `-test3`, а на
+телефоне называется «АРМ водителя (ТЕСТ)». Пакет Android у тестовой и боевой
+сборки один: используйте для test3 выделенный телефон, чтобы не перенести
+локальную очередь событий между базами при установке поверх другой сборки.
 
 ### `POST /api/mobile/documents`
 
