@@ -156,8 +156,10 @@ Backend-разработчик (Go, интеграции, PostgreSQL). Android/K
   берут только больший) и `versionName`. Сервер выпуска —
   **`admin-ai@192.168.26.163`** (`srv-ai`, внутренний адрес); публичный
   `arm-driver.profstroy-services.ru` обслуживает HTTPS, не SSH для выкладки.
-  Из офиса (сеть `192.168.26.0/24`):
-  `ARM_DRIVER_SERVER=admin-ai@192.168.26.163 ARM_DRIVER_SSH_KEY_FILE="$HOME/.ssh/id_ed25519_arm_driver" tools/release-apk.sh`.
+  Из офиса (сеть `192.168.26.0/24`) для боевого контура:
+  `ARM_DRIVER_GATEWAY_BASE_URL=https://arm-driver.profstroy-services.ru/prod/ ARM_DRIVER_MOBILE_TOKEN_FILE="$HOME/.arm-driver/prod-mobile-token" ARM_DRIVER_REMOTE_RELEASES_DIR=apps/arm-driver-app/releases-prod ARM_DRIVER_APK_LABEL=prod ARM_DRIVER_SERVER=admin-ai@192.168.26.163 ARM_DRIVER_SSH_KEY_FILE="$HOME/.ssh/id_ed25519_arm_driver" tools/release-apk.sh`.
+  Без этих дополнительных переменных скрипт публикует APK в test3; боевой APK
+  туда не выкладывать, иначе все тестовые телефоны перейдут на рабочую базу.
   Сначала проверить вход:
   `ssh -o IdentitiesOnly=yes -i "$HOME/.ssh/id_ed25519_arm_driver" admin-ai@192.168.26.163 hostname`
   (ответ должен быть `srv-ai`). Из дома через рабочий L2TP VPN при включённом
@@ -181,7 +183,9 @@ Backend-разработчик (Go, интеграции, PostgreSQL). Android/K
   нажать «Разрешить» и включить переключатель — один раз, иначе обновления
   будут ждать этого разрешения. На Android 10/11 каждое обновление дополнительно
   подтверждается в системном окне.
-- Для новых телефонов постоянная ссылка на актуальный подписанный APK:
-  `https://arm-driver.profstroy-services.ru/download`; QR для неё —
-  `docs/driver-app-download-qr.png`. Ссылка читает текущий `latest.json`,
-  поэтому её не нужно менять при выпуске следующей версии.
+- Для боевых телефонов постоянная ссылка на актуальный подписанный APK:
+  `https://arm-driver.profstroy-services.ru/prod/download`; QR —
+  `docs/driver-app-prod-download-qr.png`. Test3 остаётся на `/download` и
+  использует `docs/driver-app-download-qr.png`. Ссылки читают свой `latest.json`.
+  Установленные test3-версии не перейдут на боевую автоматически: один раз
+  установить боевой APK поверх после проверки пустой очереди событий и фото.

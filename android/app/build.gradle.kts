@@ -27,7 +27,11 @@ val localProperties = Properties().apply {
 }
 
 fun localProperty(key: String, default: String): String =
-    (localProperties.getProperty(key) ?: default)
+    (when (key) {
+        "gateway.baseUrl" -> System.getenv("ARM_DRIVER_GATEWAY_BASE_URL")
+        "gateway.mobileToken" -> System.getenv("ARM_DRIVER_GATEWAY_MOBILE_TOKEN")
+        else -> null
+    } ?: localProperties.getProperty(key) ?: default)
 
 android {
     namespace = "ru.profstroyservices.armdriver"
@@ -37,8 +41,8 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 29
         targetSdk = 35
-        versionCode = 50
-        versionName = "0.9.13"
+        versionCode = 51
+        versionName = "0.9.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

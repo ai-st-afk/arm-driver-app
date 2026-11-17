@@ -294,12 +294,13 @@ POST ${ONE_C_BASE_URL}/prtr_driver/events
 ### `GET /download`
 
 Постоянная публичная ссылка для первой установки на телефон:
-`https://arm-driver.profstroy-services.ru/download`. Заголовок
+`https://arm-driver.profstroy-services.ru/download` (test3) или
+`https://arm-driver.profstroy-services.ru/prod/download` (рабочая база). Заголовок
 `X-Auth-Token` не нужен: браузер и QR-сканер его не передают. Шлюз на каждый
 запрос читает тот же `latest.json` и отдаёт текущий APK с именем файла в
 `Content-Disposition`; ответ не кэшируется. Остальные мобильные API, включая
 `/api/mobile/app/download`, по-прежнему требуют токен. QR для печати —
-`docs/driver-app-download-qr.png`.
+`docs/driver-app-download-qr.png` (test3) и `docs/driver-app-prod-download-qr.png` (рабочая база).
 
 ### `POST /api/mobile/documents`
 

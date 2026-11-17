@@ -30,9 +30,39 @@ services:
       # и новая версия раздаётся без перезапуска контейнера.
       - ./releases:/app/releases:ro
 
+  gateway-prod:
+    image: arm-driver-app-gateway
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      HTTP_PORT: "8080"
+      DATA_DIR: "/app/data"
+      RELEASES_DIR: "/app/releases"
+    networks:
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.arm-driver-gateway-prod.rule=Host(`${ARM_DRIVER_DOMAIN}`) && PathPrefix(`/prod`)
+      - traefik.http.routers.arm-driver-gateway-prod.priority=100
+      - traefik.http.routers.arm-driver-gateway-prod.entrypoints=websecure
+      - traefik.http.routers.arm-driver-gateway-prod.tls.certresolver=le
+      - traefik.http.routers.arm-driver-gateway-prod.middlewares=arm-driver-prod-strip
+      - traefik.http.middlewares.arm-driver-prod-strip.stripprefix.prefixes=/prod
+      - traefik.http.services.arm-driver-gateway-prod.loadbalancer.server.port=8080
+    volumes:
+      - arm_driver_gateway_prod_data:/app/data
+      - ./releases-prod:/app/releases:ro
+
 networks:
   edge:
     external: true
 
 volumes:
   arm_driver_gateway_data:
+  arm_driver_gateway_prod_data:

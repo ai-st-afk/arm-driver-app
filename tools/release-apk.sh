@@ -9,8 +9,11 @@
 # Не использовать публичный HTTPS-домен как SSH-адрес.
 # Необязательно:
 # ARM_DRIVER_SSH_PASS_FILE=файл-с-паролем (если вход по паролю, нужен sshpass).
-# На сервере APK и latest.json кладутся в ~/apps/arm-driver-app/releases —
-# эта папка смонтирована в шлюз (docker-compose.yml), перезапуск не нужен.
+# По умолчанию APK и latest.json кладутся в ~/apps/arm-driver-app/releases.
+# Для боевого шлюза задайте ARM_DRIVER_REMOTE_RELEASES_DIR=apps/arm-driver-app/releases-prod,
+# ARM_DRIVER_GATEWAY_BASE_URL=https://arm-driver.profstroy-services.ru/prod/,
+# ARM_DRIVER_MOBILE_TOKEN_FILE=путь-к-файлу-с-мобильным-токеном и
+# ARM_DRIVER_APK_LABEL=prod. Обе папки смонтированы в свои шлюзы; перезапуск не нужен.
 #
 # Подпись — ключами из ~/.arm-driver (release.jks, release.pass,
 # debug.keystore, signing.lineage). Без этой папки опубликовать обновление,
@@ -26,7 +29,12 @@ KEYS="$HOME/.arm-driver"
 SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 BT="$(ls -d "$SDK"/build-tools/*/ | sort -V | tail -1)"
 OUT="$ROOT/android/app/build/publish"
-REMOTE_DIR="apps/arm-driver-app/releases"
+REMOTE_DIR="${ARM_DRIVER_REMOTE_RELEASES_DIR:-apps/arm-driver-app/releases}"
+
+if [ -n "${ARM_DRIVER_MOBILE_TOKEN_FILE:-}" ]; then
+  [ -f "$ARM_DRIVER_MOBILE_TOKEN_FILE" ] || { echo "нет файла мобильного токена" >&2; exit 1; }
+  export ARM_DRIVER_GATEWAY_MOBILE_TOKEN="$(cat "$ARM_DRIVER_MOBILE_TOKEN_FILE")"
+fi
 
 for f in release.jks release.pass debug.keystore signing.lineage; do
   [ -f "$KEYS/$f" ] || { echo "нет $KEYS/$f — подписать обновление нечем" >&2; exit 1; }
@@ -97,5 +105,5 @@ fi
   && mv .$APK.tmp $APK && mv .latest.json.tmp latest.json"
 # Тот же файл — для ручной установки на новый телефон.
 mkdir -p "$HOME/Desktop/arm-driver-apk"
-cp "$OUT/$APK" "$HOME/Desktop/arm-driver-apk/arm-driver-v$VERSION_NAME.apk"
+cp "$OUT/$APK" "$HOME/Desktop/arm-driver-apk/arm-driver${ARM_DRIVER_APK_LABEL:+-$ARM_DRIVER_APK_LABEL}-v$VERSION_NAME.apk"
 echo "опубликовано: $VERSION_NAME — телефоны заберут при следующем открытии приложения"

@@ -55,6 +55,7 @@ Backend API: `docs/backend-api.md`.
 
 ```bash
 cp .env.example .env
+cp .env.example .env.prod
 docker compose up -d --build
 ```
 
@@ -68,3 +69,37 @@ FCM-токены устройств и последние XML разнарядо
 
 Если `ONE_C_BASE_URL` не задан, `/api/mobile/events` отвечает `503`: телефон не
 должен чистить локальную очередь, пока события реально не ушли в 1С.
+
+## Тестовый и боевой шлюзы
+
+На `srv-ai` работают два экземпляра одного Go-шлюза с разными настройками и
+Docker volumes:
+
+| Контур | Адрес телефона | Входящие разнарядки от 1С | Конфигурация | APK |
+|---|---|---|---|---|
+| test3 | `https://arm-driver.profstroy-services.ru/` | `/api/1c/assignments` | `.env` | `/download` |
+| Боевая база | `https://arm-driver.profstroy-services.ru/prod/` | `/prod/api/1c/assignments` | `.env.prod` | `/prod/download` |
+
+В `.env.prod` находятся отдельные `GATEWAY_TOKEN` и `MOBILE_TOKEN`; наружу эти
+значения не выкладывать. `ONE_C_BASE_URL` указывает на боевую 1С, а настройки
+test3 остаются в `.env`. Префикс `/prod` снимает Traefik; само приложение шлюза
+и XML-контракт одинаковы. Файлы APK лежат отдельно в `releases/` и
+`releases-prod/`.
+
+APK 0.9.14 собран для боевого адреса. Уже установленные 0.9.13 смотрят за
+обновлениями в test3 и не перейдут сами: один раз установить боевой APK по
+`/prod/download` поверх существующего приложения. Сначала убедиться, что нет
+неотправленных событий и фото test3; затем очистить только кэш разнарядок
+через «Служебный вход» и проверить привязку по QR из боевой 1С. Дальше
+автообновления приходят с боевого шлюза. Выпуск боевого APK выполняется
+`tools/release-apk.sh` с отдельной папкой публикации:
+
+```bash
+ARM_DRIVER_GATEWAY_BASE_URL=https://arm-driver.profstroy-services.ru/prod/ \
+ARM_DRIVER_MOBILE_TOKEN_FILE="$HOME/.arm-driver/prod-mobile-token" \
+ARM_DRIVER_REMOTE_RELEASES_DIR=apps/arm-driver-app/releases-prod \
+ARM_DRIVER_APK_LABEL=prod \
+ARM_DRIVER_SERVER=admin-ai@192.168.26.163 \
+ARM_DRIVER_SSH_KEY_FILE="$HOME/.ssh/id_ed25519_arm_driver" \
+tools/release-apk.sh
+```

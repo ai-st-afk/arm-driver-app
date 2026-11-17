@@ -207,7 +207,7 @@ def page_frame(canvas, doc, label: str) -> None:
     canvas.setFillColor(MUTED)
     canvas.drawString(46, A4[1] - 31, "ПРОФСТРОЙ  /  АРМ ВОДИТЕЛЯ")
     canvas.line(46, 36, A4[0] - 46, 36)
-    canvas.drawString(46, 25, label + "  •  16.11.2026")
+    canvas.drawString(46, 25, label + "  •  17.11.2026")
     canvas.drawRightString(A4[0] - 46, 25, f"{doc.page}")
     canvas.restoreState()
 
