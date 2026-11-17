@@ -22,7 +22,10 @@ class PushRepository @Inject constructor(
     suspend fun registerToken(token: String): Result<Unit> = runCatching {
         val driverId = settings.driverId.first() ?: return@runCatching
         val deviceId = settings.getOrCreateDeviceId()
-        api.registerDevice(DeviceRequest(driverId = driverId, deviceId = deviceId, fcmToken = token))
+        val response = api.registerDevice(DeviceRequest(driverId = driverId, deviceId = deviceId, fcmToken = token))
+        // Ответ нужно читать: иначе R8 удаляет DeviceResponse как неиспользуемый,
+        // Retrofit видит suspend-результат как Any и не отправляет запрос.
+        check(response.status == "ok") { "Шлюз не подтвердил регистрацию push-токена" }
         Unit
     }
 
