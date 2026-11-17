@@ -19,6 +19,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,6 +50,10 @@ import ru.profstroyservices.armdriver.ui.queue.UnsentBanner
 import ru.profstroyservices.armdriver.ui.roadmap.RoadmapScreen
 import ru.profstroyservices.armdriver.ui.settings.SettingsScreen
 import ru.profstroyservices.armdriver.ui.update.UpdateBanner
+import ru.profstroyservices.armdriver.ui.update.UpdateViewModel
+import ru.profstroyservices.armdriver.ui.update.MandatoryUpdateDialog
+import ru.profstroyservices.armdriver.data.update.UpdateState
+import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.ui.assignment.GateMode
 import ru.profstroyservices.armdriver.ui.current.CurrentAssignmentBar
 import ru.profstroyservices.armdriver.ui.current.CurrentAssignmentViewModel
@@ -90,12 +95,26 @@ fun MainScaffold(
     startOnSettings: Boolean = false,
     navController: NavHostController = rememberNavController(),
     queueViewModel: QueueViewModel = hiltViewModel(),
-    currentViewModel: CurrentAssignmentViewModel = hiltViewModel()
+    currentViewModel: CurrentAssignmentViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel = hiltViewModel()
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val queueState by queueViewModel.state.collectAsState()
     val current by currentViewModel.current.collectAsState()
+    val updateState by updateViewModel.state.collectAsState()
+    val mandatoryReady by updateViewModel.mandatoryReady.collectAsState()
+    val installationHeld by updateViewModel.installationHeld.collectAsState()
+    val currentTrip = current?.state?.activeTrip
+    val tripInProgress = currentTrip != null && currentTrip.nextAction != EventTypes.PRIBYL_NA_POGRUZKU
+    val deferInstall = current == null || tripInProgress
+    DisposableEffect(deferInstall) {
+        val release = if (deferInstall) updateViewModel.holdInstall() else null
+        onDispose { release?.invoke() }
+    }
+    val mandatoryGate = mandatoryReady && current != null && !tripInProgress && !installationHeld &&
+        (updateState is UpdateState.Ready || updateState is UpdateState.NeedsConfirmation ||
+            updateState is UpdateState.Installing || updateState is UpdateState.AwaitingSystemInstall)
     var dismissedNewAssignmentId by rememberSaveable { mutableStateOf<String?>(null) }
     var openedReplacementId by rememberSaveable { mutableStateOf<String?>(null) }
     val newAssignment = current?.newSameDayAssignment
@@ -152,7 +171,7 @@ fun MainScaffold(
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding)
         ) {
-            UpdateBanner()
+            UpdateBanner(viewModel = updateViewModel)
             UnsentBanner(state = queueState, onRetry = queueViewModel::onRetry)
             current?.state?.let { CurrentAssignmentBar(state = it) }
             announcement?.let {
@@ -265,6 +284,13 @@ fun MainScaffold(
             containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error,
             titleContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onError,
             textContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onError
+        )
+    }
+    if (mandatoryGate) {
+        MandatoryUpdateDialog(
+            pendingCount = queueState.pendingCount,
+            onRetryQueue = queueViewModel::onRetry,
+            viewModel = updateViewModel
         )
     }
 }

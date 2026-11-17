@@ -124,6 +124,7 @@ private fun updateStatusText(state: UpdateState, installAllowed: Boolean): Strin
         "Версия ${state.versionName} скачана. Чтобы она установилась, разрешите установку обновлений."
     }
     is UpdateState.Installing -> "Устанавливается версия ${state.versionName}…"
+    is UpdateState.AwaitingSystemInstall -> "Версия ${state.versionName}: подтвердите установку в окне Android."
     is UpdateState.NeedsConfirmation -> "Версия ${state.versionName} ждёт подтверждения установки."
     is UpdateState.CheckFailed -> state.message
     is UpdateState.InstallFailed -> state.message

@@ -16,18 +16,20 @@ import (
 // tools/release-apk.sh кладёт в RELEASES_DIR файл APK и latest.json.
 
 type releaseManifest struct {
-	VersionCode int    `json:"version_code"`
-	VersionName string `json:"version_name"`
-	File        string `json:"file"`
-	SHA256      string `json:"sha256"`
-	Size        int64  `json:"size"`
+	VersionCode             int    `json:"version_code"`
+	VersionName             string `json:"version_name"`
+	MinSupportedVersionCode int    `json:"min_supported_version_code"`
+	File                    string `json:"file"`
+	SHA256                  string `json:"sha256"`
+	Size                    int64  `json:"size"`
 }
 
 type appVersionResponse struct {
-	VersionCode int    `json:"version_code"`
-	VersionName string `json:"version_name"`
-	SHA256      string `json:"sha256"`
-	Size        int64  `json:"size"`
+	VersionCode             int    `json:"version_code"`
+	VersionName             string `json:"version_name"`
+	MinSupportedVersionCode int    `json:"min_supported_version_code"`
+	SHA256                  string `json:"sha256"`
+	Size                    int64  `json:"size"`
 }
 
 var errNoRelease = errors.New("no release published")
@@ -47,8 +49,9 @@ func (s *Server) loadRelease() (releaseManifest, string, error) {
 		return releaseManifest{}, "", err
 	}
 	name := filepath.Base(manifest.File)
-	if manifest.VersionCode <= 0 || name != manifest.File || name == "." || manifest.SHA256 == "" {
-		return releaseManifest{}, "", errors.New("latest.json: нет version_code, sha256 или неверное имя файла")
+	if manifest.VersionCode <= 0 || name != manifest.File || name == "." || manifest.SHA256 == "" ||
+		manifest.MinSupportedVersionCode < 0 || manifest.MinSupportedVersionCode > manifest.VersionCode {
+		return releaseManifest{}, "", errors.New("latest.json: неверная версия, порог обязательного обновления, sha256 или имя файла")
 	}
 	return manifest, filepath.Join(s.cfg.ReleasesDir, name), nil
 }
@@ -69,10 +72,11 @@ func (s *Server) latestAppVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, appVersionResponse{
-		VersionCode: manifest.VersionCode,
-		VersionName: manifest.VersionName,
-		SHA256:      manifest.SHA256,
-		Size:        manifest.Size,
+		VersionCode:             manifest.VersionCode,
+		VersionName:             manifest.VersionName,
+		MinSupportedVersionCode: manifest.MinSupportedVersionCode,
+		SHA256:                  manifest.SHA256,
+		Size:                    manifest.Size,
 	})
 }
 

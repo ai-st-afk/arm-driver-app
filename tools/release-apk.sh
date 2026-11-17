@@ -14,6 +14,8 @@
 # ARM_DRIVER_GATEWAY_BASE_URL=https://arm-driver.profstroy-services.ru/prod/,
 # ARM_DRIVER_MOBILE_TOKEN_FILE=путь-к-файлу-с-мобильным-токеном и
 # ARM_DRIVER_APK_LABEL=prod. Обе папки смонтированы в свои шлюзы; перезапуск не нужен.
+# ARM_DRIVER_MIN_SUPPORTED_VERSION_CODE=код версии, ниже которой следующий рейс
+# недоступен до установки APK; по умолчанию 0 (обычное обновление).
 #
 # Подпись — ключами из ~/.arm-driver (release.jks, release.pass,
 # debug.keystore, signing.lineage). Без этой папки опубликовать обновление,
@@ -65,8 +67,13 @@ rm -f "$OUT/aligned.apk" "$OUT/signed.apk.idsig"
 
 SHA256="$(shasum -a 256 "$OUT/$APK" | cut -d' ' -f1)"
 SIZE="$(stat -f%z "$OUT/$APK")"
+MIN_SUPPORTED_VERSION_CODE="${ARM_DRIVER_MIN_SUPPORTED_VERSION_CODE:-0}"
+if [[ ! "$MIN_SUPPORTED_VERSION_CODE" =~ ^[0-9]+$ ]] || (( MIN_SUPPORTED_VERSION_CODE > VERSION_CODE )); then
+  echo "неверный ARM_DRIVER_MIN_SUPPORTED_VERSION_CODE: ожидается число от 0 до $VERSION_CODE" >&2
+  exit 1
+fi
 cat >"$OUT/latest.json" <<EOF
-{"version_code":$VERSION_CODE,"version_name":"$VERSION_NAME","file":"$APK","sha256":"$SHA256","size":$SIZE}
+{"version_code":$VERSION_CODE,"version_name":"$VERSION_NAME","min_supported_version_code":$MIN_SUPPORTED_VERSION_CODE,"file":"$APK","sha256":"$SHA256","size":$SIZE}
 EOF
 
 echo "собрано: $OUT/$APK ($VERSION_NAME, код $VERSION_CODE, $((SIZE / 1024 / 1024)) МБ)"

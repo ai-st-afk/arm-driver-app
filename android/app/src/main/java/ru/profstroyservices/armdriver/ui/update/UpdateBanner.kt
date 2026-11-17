@@ -14,8 +14,11 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,10 +43,13 @@ import javax.inject.Inject
 class UpdateViewModel @Inject constructor(private val updater: AppUpdater) : ViewModel() {
     val state: StateFlow<UpdateState> = updater.state
     val installAllowed: StateFlow<Boolean> = updater.installAllowed
+    val mandatoryReady: StateFlow<Boolean> = updater.mandatoryReady
+    val installationHeld: StateFlow<Boolean> = updater.installationHeld
 
     fun checkNow() = updater.check(force = true)
     fun installNow() = updater.installNow()
     fun confirm(intent: Intent) = updater.confirmInstall(intent)
+    fun holdInstall(): () -> Unit = updater.holdInstall()
 }
 
 // Экран системных настроек, где для нашего приложения включается
@@ -57,15 +64,23 @@ fun installPermissionIntent(packageName: String) =
 fun UpdateBanner(viewModel: UpdateViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     val installAllowed by viewModel.installAllowed.collectAsState()
+    val mandatory by viewModel.mandatoryReady.collectAsState()
     val context = LocalContext.current
     var permissionDismissed by rememberSaveable { mutableStateOf(false) }
 
     when (val current = state) {
         is UpdateState.NeedsConfirmation -> BannerRow(
-            title = "Обновление ${current.versionName} ждёт подтверждения",
-            text = "Нажмите «Обновить» в окне установки.",
-            action = "Открыть",
+            title = if (mandatory) "Обязательное обновление ${current.versionName}" else "Обновление ${current.versionName} ждёт подтверждения",
+            text = "Нажмите «Установить» в системном окне.",
+            action = "Подтвердить установку",
             onAction = { viewModel.confirm(current.intent) }
+        )
+
+        is UpdateState.AwaitingSystemInstall -> BannerRow(
+            title = "Подтвердите обновление ${current.versionName}",
+            text = "Дождитесь системного окна и нажмите в нём «Установить». Повторно запускать установку не нужно.",
+            action = null,
+            onAction = {}
         )
 
         is UpdateState.InstallFailed -> BannerRow(
@@ -77,11 +92,13 @@ fun UpdateBanner(viewModel: UpdateViewModel = hiltViewModel()) {
 
         is UpdateState.Ready -> if (installAllowed) {
             BannerRow(
-                title = "Готова версия ${current.versionName}",
-                text = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                title = if (mandatory) "Обязательное обновление ${current.versionName}" else "Готова версия ${current.versionName}",
+                text = if (mandatory) {
+                    "Закончите текущий рейс и установите обновление перед следующим."
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     "Установится сама, когда свернёте приложение. «Установить сейчас» закроет его на несколько секунд."
                 } else {
-                    "На Android 10 и 11 подтвердите обновление в системном окне."
+                    "Нажмите «Установить» здесь, затем подтвердите обновление в системном окне Android."
                 },
                 action = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "Установить сейчас" else "Установить",
                 onAction = viewModel::installNow
@@ -94,6 +111,53 @@ fun UpdateBanner(viewModel: UpdateViewModel = hiltViewModel()) {
             PermissionBanner(context, onDismiss = { permissionDismissed = true })
         }
     }
+}
+
+@Composable
+fun MandatoryUpdateDialog(
+    pendingCount: Int,
+    onRetryQueue: () -> Unit,
+    viewModel: UpdateViewModel
+) {
+    val state by viewModel.state.collectAsState()
+    val installAllowed by viewModel.installAllowed.collectAsState()
+    val context = LocalContext.current
+    val version = when (val current = state) {
+        is UpdateState.Ready -> current.versionName
+        is UpdateState.NeedsConfirmation -> current.versionName
+        is UpdateState.Installing -> current.versionName
+        is UpdateState.AwaitingSystemInstall -> current.versionName
+        else -> return
+    }
+    AlertDialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        title = { Text("Нужно обновить приложение") },
+        text = {
+            Text(
+                "Версия $version уже скачана и проверена. Установите её перед следующим рейсом." +
+                    if (pendingCount > 0) " Не отправлено: $pendingCount. Можно повторить отправку до установки; очередь сохранится и после обновления." else ""
+            )
+        },
+        confirmButton = {
+            when (val current = state) {
+                is UpdateState.Ready -> Button(onClick = if (installAllowed) viewModel::installNow else {
+                    { context.startActivity(installPermissionIntent(context.packageName)) }
+                }) {
+                    Text(if (installAllowed) "Установить" else "Разрешить установку")
+                }
+                is UpdateState.NeedsConfirmation -> Button(onClick = { viewModel.confirm(current.intent) }) {
+                    Text("Подтвердить установку")
+                }
+                is UpdateState.Installing -> Button(onClick = {}, enabled = false) { Text("Устанавливается…") }
+                is UpdateState.AwaitingSystemInstall -> Button(onClick = {}, enabled = false) { Text("Ждём подтверждения Android…") }
+                else -> Unit
+            }
+        },
+        dismissButton = {
+            if (pendingCount > 0) TextButton(onClick = onRetryQueue) { Text("Повторить отправку") }
+        }
+    )
 }
 
 @Composable
@@ -117,7 +181,7 @@ private fun PermissionBanner(context: android.content.Context, onDismiss: (() ->
 private fun BannerRow(
     title: String,
     text: String,
-    action: String,
+    action: String?,
     onAction: () -> Unit,
     onDismiss: (() -> Unit)? = null
 ) {
@@ -151,7 +215,7 @@ private fun BannerRow(
             color = MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.padding(end = 12.dp)
         )
-        OutlinedButton(
+        if (action != null) OutlinedButton(
             onClick = onAction,
             modifier = Modifier.align(Alignment.End).padding(top = 4.dp, end = 12.dp)
         ) {

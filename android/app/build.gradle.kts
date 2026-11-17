@@ -41,8 +41,8 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 29
         targetSdk = 35
-        versionCode = 52
-        versionName = "0.9.15"
+        versionCode = 55
+        versionName = "0.9.17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

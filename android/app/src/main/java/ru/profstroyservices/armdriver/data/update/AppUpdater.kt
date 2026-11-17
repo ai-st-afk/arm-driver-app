@@ -8,9 +8,11 @@ import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.os.Build
 import android.util.Log
+import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +47,7 @@ sealed interface UpdateState {
     data class Downloading(val versionName: String, val percent: Int) : UpdateState
     data class Ready(val versionName: String) : UpdateState
     data class Installing(val versionName: String) : UpdateState
+    data class AwaitingSystemInstall(val versionName: String) : UpdateState
     // Система всё-таки спросила водителя (первая установка до разрешения,
     // оболочка производителя) — экран подтверждения открывается кнопкой.
     data class NeedsConfirmation(val versionName: String, val intent: Intent) : UpdateState
@@ -63,7 +66,8 @@ private class UpdateException(message: String) : IOException(message)
 // свернул приложение: установка закрывает его процесс, и посреди работы
 // это выглядело бы как вылет. Тихая установка без вопросов — право
 // приложения обновлять само себя (Android 12+), но только после того, как
-// ему один раз разрешили «Установку неизвестных приложений».
+// ему один раз разрешили «Установку неизвестных приложений». На Android 10/11
+// системный установщик открывается из приложения одной явной кнопкой.
 @Singleton
 class AppUpdater @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -81,6 +85,12 @@ class AppUpdater @Inject constructor(
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state: StateFlow<UpdateState> = _state.asStateFlow()
 
+    private val _mandatoryReady = MutableStateFlow(false)
+    val mandatoryReady: StateFlow<Boolean> = _mandatoryReady.asStateFlow()
+
+    private val _installationHeld = MutableStateFlow(false)
+    val installationHeld: StateFlow<Boolean> = _installationHeld.asStateFlow()
+
     private val _installAllowed = MutableStateFlow(canInstall())
     val installAllowed: StateFlow<Boolean> = _installAllowed.asStateFlow()
 
@@ -89,17 +99,33 @@ class AppUpdater @Inject constructor(
     @Volatile private var lastCheckAt = 0L
     private var checkJob: Job? = null
     private val installing = AtomicBoolean(false)
+    private val confirmationOpening = AtomicBoolean(false)
+    @Volatile private var installerWentBackground = false
     private val holds = AtomicInteger(0)
     private val staleSessionsCleared = AtomicBoolean(false)
 
     fun onAppForeground() {
         foreground = true
+        if (installerWentBackground && _state.value is UpdateState.AwaitingSystemInstall) {
+            installerWentBackground = false
+            confirmationOpening.set(false)
+            installing.set(false)
+            _state.value = UpdateState.InstallFailed(
+                ready?.versionName ?: "",
+                "Системная установка не завершена. Нажмите «Повторить» и подтвердите обновление."
+            )
+        }
         _installAllowed.value = canInstall()
         check(force = false)
     }
 
     fun onAppBackground() {
         foreground = false
+        if (_state.value is UpdateState.AwaitingSystemInstall) {
+            installerWentBackground = true
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         installInBackground()
     }
 
@@ -107,8 +133,19 @@ class AppUpdater @Inject constructor(
     // вместе с недоснятыми фото, и этап пришлось бы снимать заново.
     fun holdInstall(): () -> Unit {
         holds.incrementAndGet()
+        _installationHeld.value = true
         val released = AtomicBoolean(false)
-        return { if (released.compareAndSet(false, true)) holds.decrementAndGet() }
+        return {
+            if (released.compareAndSet(false, true)) {
+                _installationHeld.value = holds.decrementAndGet() > 0
+            }
+        }
+    }
+
+    fun blocksNewTrip(): Boolean = _mandatoryReady.value && when (_state.value) {
+        is UpdateState.Ready, is UpdateState.NeedsConfirmation,
+        is UpdateState.Installing, is UpdateState.AwaitingSystemInstall -> true
+        else -> false
     }
 
     @Synchronized
@@ -142,13 +179,16 @@ class AppUpdater @Inject constructor(
         }
         if (release.versionCode <= BuildConfig.VERSION_CODE) {
             ready = null
+            _mandatoryReady.value = false
             dir.listFiles()?.forEach { it.delete() }
             _state.value = UpdateState.UpToDate
             return
         }
         val apk = apkFile(release)
+        if (apk.exists() && !sha256(apk).equals(release.sha256, ignoreCase = true)) apk.delete()
         if (!apk.exists()) {
             ready = null
+            _mandatoryReady.value = false
             try {
                 download(release, apk)
             } catch (e: CancellationException) {
@@ -160,6 +200,7 @@ class AppUpdater @Inject constructor(
             }
         }
         ready = release
+        _mandatoryReady.value = release.isMandatoryFor(BuildConfig.VERSION_CODE)
         _state.value = UpdateState.Ready(release.versionName)
         if (!foreground) installInBackground()
     }
@@ -221,6 +262,7 @@ class AppUpdater @Inject constructor(
     }
 
     private fun installInBackground() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         if (ready == null || holds.get() > 0 || !canInstall()) return
         if (_state.value !is UpdateState.Ready) return
         scope.launch { install() }
@@ -231,6 +273,10 @@ class AppUpdater @Inject constructor(
         val apk = apkFile(release)
         if (!apk.exists() || !installing.compareAndSet(false, true)) return
         _state.value = UpdateState.Installing(release.versionName)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            installWithSystemWindow(release, apk)
+            return
+        }
         try {
             val installer = context.packageManager.packageInstaller
             val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
@@ -260,16 +306,45 @@ class AppUpdater @Inject constructor(
         }
     }
 
+    private fun installWithSystemWindow(release: AppReleaseDto, apk: File) {
+        try {
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)
+            val intent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            installerWentBackground = false
+            _state.value = UpdateState.AwaitingSystemInstall(release.versionName)
+            context.startActivity(intent)
+            failIfSystemWindowDidNotOpen(release.versionName)
+        } catch (e: Exception) {
+            Log.w(TAG, "system installer did not start", e)
+            installing.set(false)
+            _state.value = UpdateState.InstallFailed(release.versionName, "Не удалось открыть системную установку. Попробуйте ещё раз.")
+        }
+    }
+
+    private fun failIfSystemWindowDidNotOpen(versionName: String) {
+        scope.launch {
+            delay(10_000)
+            if (foreground && !installerWentBackground && _state.value is UpdateState.AwaitingSystemInstall) {
+                confirmationOpening.set(false)
+                installing.set(false)
+                _state.value = UpdateState.InstallFailed(versionName, "Окно установки не открылось. Нажмите «Повторить».")
+            }
+        }
+    }
+
     internal fun onInstallStatus(status: Int, systemMessage: String?, confirm: Intent?) {
         val release = ready ?: return
         installing.set(false)
+        confirmationOpening.set(false)
+        installerWentBackground = false
         Log.i(TAG, "install status $status: $systemMessage")
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 installing.set(true)
                 if (confirm == null) return
                 _state.value = UpdateState.NeedsConfirmation(release.versionName, confirm)
-                if (foreground) confirmInstall(confirm)
             }
             PackageInstaller.STATUS_SUCCESS -> _state.value = UpdateState.UpToDate
             // Водитель нажал «Отмена» в системном окне — не ошибка, обновление
@@ -280,8 +355,18 @@ class AppUpdater @Inject constructor(
     }
 
     fun confirmInstall(intent: Intent) {
+        val versionName = ready?.versionName ?: return
+        if (!confirmationOpening.compareAndSet(false, true)) return
+        installerWentBackground = false
+        _state.value = UpdateState.AwaitingSystemInstall(versionName)
         runCatching { context.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-            .onFailure { Log.w(TAG, "cannot open install confirmation", it) }
+            .onFailure {
+                Log.w(TAG, "cannot open install confirmation", it)
+                confirmationOpening.set(false)
+                installing.set(false)
+                _state.value = UpdateState.InstallFailed(versionName, "Не удалось открыть системную установку. Попробуйте ещё раз.")
+            }
+        failIfSystemWindowDidNotOpen(versionName)
     }
 
     private fun canInstall(): Boolean = context.packageManager.canRequestPackageInstalls()
@@ -309,6 +394,9 @@ class AppUpdater @Inject constructor(
         const val CHECK_INTERVAL_MS = 30 * 60 * 1000L
     }
 }
+
+internal fun AppReleaseDto.isMandatoryFor(currentVersionCode: Int): Boolean =
+    currentVersionCode < minSupportedVersionCode
 
 private fun percent(done: Long, total: Long): Int =
     if (total <= 0) 0 else (done * 100 / total).toInt().coerceIn(0, 100)

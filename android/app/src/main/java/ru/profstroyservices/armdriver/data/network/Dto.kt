@@ -224,6 +224,7 @@ data class DriverDto(
 data class AppReleaseDto(
     @SerialName("version_code") val versionCode: Int,
     @SerialName("version_name") val versionName: String,
+    @SerialName("min_supported_version_code") val minSupportedVersionCode: Int = 0,
     val sha256: String,
     val size: Long
 )

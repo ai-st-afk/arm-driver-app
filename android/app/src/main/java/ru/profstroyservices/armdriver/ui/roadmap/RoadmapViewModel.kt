@@ -124,6 +124,10 @@ class RoadmapViewModel @Inject constructor(
     }
 
     fun onTripAction(trip: TripDto, type: String) {
+        if (type == EventTypes.PRIBYL_NA_POGRUZKU && updater.blocksNewTrip()) {
+            emitFeedback("Сначала установите обязательное обновление приложения", null)
+            return
+        }
         val state = markableState() ?: return
         if (!state.canMarkTripStep(trip.id, type)) return
         viewModelScope.launch {

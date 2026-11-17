@@ -20,6 +20,7 @@ import ru.profstroyservices.armdriver.data.repository.DRIVER_TIME_ZONE
 import ru.profstroyservices.armdriver.data.repository.QueueRepository
 import ru.profstroyservices.armdriver.data.repository.sameDriverReplacement
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
+import ru.profstroyservices.armdriver.data.update.AppUpdater
 import javax.inject.Inject
 import java.time.LocalDate
 
@@ -42,7 +43,8 @@ class AssignmentViewModel @Inject constructor(
     private val states: AssignmentStateRepository,
     private val eventQueue: EventQueueRepository,
     private val queue: QueueRepository,
-    private val settings: DriverSettingsRepository
+    private val settings: DriverSettingsRepository,
+    private val updater: AppUpdater
 ) : ViewModel() {
 
     private val assignmentId: String = checkNotNull(savedStateHandle["assignmentId"])
@@ -87,6 +89,7 @@ class AssignmentViewModel @Inject constructor(
     private fun send(type: String, allowed: (AssignmentState) -> Boolean) {
         val content = uiState.value as? AssignmentUiState.Content ?: return
         if (!allowed(content.state)) return
+        if (type == EventTypes.NACHALO_SMENY && updater.blocksNewTrip()) return
         if (type == EventTypes.NACHALO_SMENY && content.continuesSameDriverShift) return
         if (type == EventTypes.NACHALO_SMENY && content.otherOpenShiftLabel != null) return
         viewModelScope.launch {

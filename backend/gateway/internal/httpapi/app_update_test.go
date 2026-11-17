@@ -60,6 +60,24 @@ func TestLatestAppVersionReturnsManifest(t *testing.T) {
 	}
 }
 
+func TestLatestAppVersionReturnsMandatoryThreshold(t *testing.T) {
+	manifest := `{"version_code":37,"version_name":"0.9.0","min_supported_version_code":36,"file":"arm-driver-0.9.0.apk","sha256":"abc123","size":10}`
+	api := newReleaseServer(t, manifest, []byte("0123456789"))
+	rec := getApp(api, "/api/mobile/app/latest", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"min_supported_version_code":36`) {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLatestAppVersionRejectsInvalidMandatoryThreshold(t *testing.T) {
+	manifest := `{"version_code":37,"version_name":"0.9.0","min_supported_version_code":38,"file":"arm-driver-0.9.0.apk","sha256":"abc123","size":10}`
+	api := newReleaseServer(t, manifest, []byte("0123456789"))
+	rec := getApp(api, "/api/mobile/app/latest", nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestLatestAppVersionWithoutReleaseIs404(t *testing.T) {
 	api := newReleaseServer(t, "", nil)
 
