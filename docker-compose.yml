@@ -1,6 +1,6 @@
 services:
   gateway:
-    image: arm-driver-app-gateway-test3
+    image: arm-driver-app-gateway-test3:driver-parity-20261118-r2
     logging:
       driver: json-file
       options:
@@ -33,7 +33,7 @@ services:
       - ./releases:/app/releases:ro
 
   gateway-prod:
-    image: arm-driver-app-gateway:iphone-web-20261118
+    image: arm-driver-app-gateway:driver-parity-20261118-r2
     logging:
       driver: json-file
       options:

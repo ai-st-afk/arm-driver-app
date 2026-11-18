@@ -16,6 +16,55 @@ const webTestDriver = "3c9d1a55-77e2-4f0b-8a6c-1d2e3f405162"
 const webOtherDriver = "e8d9c721-fc51-4dbc-933c-73b8544d67b7"
 const webTestAssignment = "b1e4f207-9a3c-4d15-8e77-0c6b5a4d3e2f"
 
+func TestWebPairDriverByOneCQRGuid(t *testing.T) {
+	api := newTestServer(t, config.Config{MobileToken: "mobile-secret", WebCookieName: "arm_driver_web_prod", WebCookiePath: "/prod"})
+	makeRequest := func(body string, withHeader bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/web/pair-driver", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if withHeader {
+			req.Header.Set("X-Web-Request", "1")
+		}
+		w := httptest.NewRecorder()
+		api.Routes().ServeHTTP(w, req)
+		return w
+	}
+	if got := makeRequest(`{"driver_id":"`+webTestDriver+`"}`, false); got.Code != http.StatusForbidden {
+		t.Fatalf("missing request header = %d", got.Code)
+	}
+	if got := makeRequest(`{"driver_id":"not-a-guid"}`, true); got.Code != http.StatusBadRequest {
+		t.Fatalf("invalid GUID = %d", got.Code)
+	}
+	bound := makeRequest(`{"driver_id":"`+strings.ToUpper(webTestDriver)+`"}`, true)
+	if bound.Code != http.StatusOK {
+		t.Fatalf("pair = %d: %s", bound.Code, bound.Body.String())
+	}
+	cookies := bound.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Path != "/prod" || cookies[0].Name != "arm_driver_web_prod" || !cookies[0].HttpOnly || !cookies[0].Secure {
+		t.Fatalf("prod cookie = %+v", cookies)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/web/session", nil)
+	req.AddCookie(cookies[0])
+	w := httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), webTestDriver) {
+		t.Fatalf("session = %d: %s", w.Code, w.Body.String())
+	}
+	rebindReq := httptest.NewRequest(http.MethodPost, "/api/web/pair-driver", strings.NewReader(`{"driver_id":"`+webOtherDriver+`"}`))
+	rebindReq.Header.Set("Content-Type", "application/json")
+	rebindReq.Header.Set("X-Web-Request", "1")
+	rebindReq.AddCookie(cookies[0])
+	rebound := httptest.NewRecorder()
+	api.Routes().ServeHTTP(rebound, rebindReq)
+	if rebound.Code != http.StatusOK {
+		t.Fatalf("rebind = %d: %s", rebound.Code, rebound.Body.String())
+	}
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("old session survived rebind: %d", w.Code)
+	}
+}
+
 func TestWebPairingAndDriverIsolation(t *testing.T) {
 	api := newTestServer(t, config.Config{MobileToken: "mobile-secret", WebAdminToken: "admin-secret"})
 	assignment := `<Разнарядка><Идентификатор>` + webTestAssignment + `</Идентификатор><Версия>1</Версия><Номер>36</Номер><ДатаВыезда>2026-11-17</ДатаВыезда><Статус>Назначена</Статус><Водитель><Идентификатор>` + webTestDriver + `</Идентификатор><ФИО>Тестовый водитель</ФИО></Водитель><Машина><Идентификатор>car</Идентификатор></Машина><Ездки></Ездки></Разнарядка>`

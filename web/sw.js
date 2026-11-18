@@ -1,5 +1,5 @@
-const CACHE = 'arm-driver-web-v5';
-const SHELL = ['./', './index.html', './app.js', './db.js', './style.css', './icon.svg', './brand.svg', './icons.svg', './apple-touch-icon.png', './icon-192.png', './icon-512.png', './manifest.webmanifest'];
+const CACHE = 'arm-driver-web-v9';
+const SHELL = ['./', './index.html', './app.js', './db.js', './driver-qr.mjs', './vendor/jsQR.js', './style.css', './icon.svg', './brand.svg', './icons.svg', './apple-touch-icon.png', './icon-192.png', './icon-512.png', './manifest.webmanifest'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });

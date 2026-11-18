@@ -118,6 +118,29 @@ func (s *Store) ConsumeWebPairing(code string, now time.Time) (driverID, session
 	return item.DriverID, session, nil
 }
 
+// CreateWebSession привязывает браузер по QR водителя из 1С, как Android-приложение.
+func (s *Store) CreateWebSession(driverID, oldSession string, now time.Time) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadWebAuth()
+	if err != nil {
+		return "", err
+	}
+	pruneWebAuth(&state, now)
+	session, err := randomWebToken(32)
+	if err != nil {
+		return "", err
+	}
+	if oldSession != "" {
+		delete(state.Sessions, webHash(oldSession))
+	}
+	state.Sessions[webHash(session)] = webSession{DriverID: driverID, ExpiresAt: now.Add(90 * 24 * time.Hour)}
+	if err := s.saveWebAuth(state); err != nil {
+		return "", err
+	}
+	return session, nil
+}
+
 func (s *Store) WebSessionDriver(session string, now time.Time) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -31,6 +31,16 @@ export function put(db, store, value) {
   });
 }
 
+export function clearAssignments(db) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('assignments', 'readwrite');
+    transaction.objectStore('assignments').clear();
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
 export function putAction(db, event, photos) {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['events', 'photos'], 'readwrite');

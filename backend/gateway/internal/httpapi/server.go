@@ -67,6 +67,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/web/admin/pairings", s.webCreatePairing)
 	mux.HandleFunc("POST /api/web/admin/revoke", s.webRevokeDriver)
 	mux.HandleFunc("POST /api/web/pair", s.webPair)
+	mux.HandleFunc("POST /api/web/pair-driver", s.webPairDriver)
 	mux.HandleFunc("GET /api/web/session", s.webSessionInfo)
 	mux.HandleFunc("POST /api/web/logout", s.webLogout)
 	mux.HandleFunc("GET /api/web/assignments", s.webAssignments)

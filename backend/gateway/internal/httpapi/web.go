@@ -129,14 +129,49 @@ func (s *Server) webPair(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось привязать телефон")
 		return
 	}
+	s.setWebSessionCookie(w, r, token)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"driver_id": driverID, "dispatcher_phone": s.cfg.DispatcherPhone})
+}
+
+func (s *Server) webPairDriver(w http.ResponseWriter, r *http.Request) {
+	if !webMutationAllowed(r) {
+		writeJSONError(w, http.StatusForbidden, "forbidden", "запрос отклонён")
+		return
+	}
+	var body struct {
+		DriverID string `json:"driver_id"`
+	}
+	if !readJSONBody(w, r, &body) {
+		return
+	}
+	driverID := strings.ToLower(strings.TrimSpace(body.DriverID))
+	if !guidPattern.MatchString(driverID) {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "нужен GUID водителя из 1С")
+		return
+	}
+	oldSession := ""
+	if cookie, err := r.Cookie(s.webCookieName()); err == nil {
+		oldSession = cookie.Value
+	}
+	token, err := s.store.CreateWebSession(driverID, oldSession, time.Now())
+	if err != nil {
+		s.logger.Error("web driver pairing failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "не удалось привязать телефон")
+		return
+	}
+	s.setWebSessionCookie(w, r, token)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"driver_id": driverID, "dispatcher_phone": s.cfg.DispatcherPhone})
+}
+
+func (s *Server) setWebSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: s.webCookieName(), Value: token, Path: s.webCookiePath(),
 		Expires: time.Now().Add(90 * 24 * time.Hour), HttpOnly: true,
 		Secure:   !strings.HasPrefix(r.Host, "localhost") && !strings.HasPrefix(r.Host, "127.0.0.1"),
 		SameSite: http.SameSiteStrictMode,
 	})
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]string{"driver_id": driverID})
 }
 
 func (s *Server) webDriver(r *http.Request) (string, bool) {
@@ -162,7 +197,7 @@ func (s *Server) webSessionInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]string{"driver_id": driver})
+	writeJSON(w, http.StatusOK, map[string]string{"driver_id": driver, "dispatcher_phone": s.cfg.DispatcherPhone})
 }
 
 func (s *Server) webLogout(w http.ResponseWriter, r *http.Request) {
