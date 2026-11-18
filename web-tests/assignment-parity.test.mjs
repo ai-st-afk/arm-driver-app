@@ -12,10 +12,10 @@ const context = vm.createContext({
   navigator:{onLine:true},
   localStorage:{getItem:() => null},
   window:{},
-  setTimeout,clearTimeout,Date,Intl,console,
+  setTimeout,clearTimeout,Date,Intl,console:{error:() => {},warn:() => {}},
 });
-vm.runInContext(source + '\nglobalThis.parity = {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService};',context);
-const {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService} = context.parity;
+vm.runInContext(source + '\nglobalThis.parity = {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError};',context);
+const {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError} = context.parity;
 const id = n => `${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`;
 const trip = (n, overrides={}) => ({id:id(n),order:n,status:'Назначена',load_point:{name:'Завод'},unload_point:{name:'Клиент'},stages:null,next_stage:'ПрибылНаПогрузку',...overrides});
 const assignment = (n, overrides={}) => ({id:id(n),version:1,number:String(n),departure_day:'2026-11-18',status:'Назначена',
@@ -37,6 +37,16 @@ test('рейс, пропавший из нового пакета, остаёт�
   assert.equal(merged.trips.length,2);
   assert.equal(merged.trips.find(item=>item.id===id(1)).status,'Отменена');
   assert.equal(merged.ack_required_version,2);
+});
+
+test('предыдущая версия с пустыми ездками не роняет обновление', () => {
+  const old=assignment(79,{version:1,trips:null});
+  const fresh=assignment(79,{version:2,trips:[trip(179)]});
+  const merged=mergeAssignment(old,fresh);
+  assert.equal(merged.trips.length,1);
+  assert.equal(merged.version,2);
+  assert.equal(merged.ack_required_version,2);
+  assert.equal(mergeAssignment(null,assignment(80,{trips:null})).trips.length,0);
 });
 
 test('выдача ключей требует автоматического ознакомления новой версии', () => {
@@ -84,4 +94,12 @@ test('служебная привязка совпадает с Android, вых�
   renderService();
   assert.match(main.innerHTML,/Сканировать QR-код/);
   assert.match(main.innerHTML,/Привязать по введённому/);
+});
+
+test('сбой локального хранилища показывает причину и повтор без удаления очереди', () => {
+  renderStartupError(new Error('Чтение events не завершилось за 15 секунд'));
+  assert.match(main.innerHTML,/Не удалось открыть данные телефона/);
+  assert.match(main.innerHTML,/Чтение events/);
+  assert.match(main.innerHTML,/Сохранённые события и фото не удалены/);
+  assert.match(main.innerHTML,/Повторить/);
 });

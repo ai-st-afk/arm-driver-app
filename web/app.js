@@ -162,6 +162,8 @@ function routeChanged(old, fresh) {
   return stableJSON(comparable) !== stableJSON(fresh);
 }
 function mergeAssignment(previous, fresh) {
+  if (previous && !Array.isArray(previous.trips)) previous = {...previous,trips:[]};
+  if (!Array.isArray(fresh.trips)) fresh = {...fresh,trips:[]};
   if (previous && fresh.version <= previous.version) return previous;
   const cancelledNow = fresh.trips.some(trip => trip.status === 'Отменена' && previous?.trips.find(old => old.id === trip.id)?.status !== 'Отменена');
   const ackRequired = !previous || cancelledNow || routeChanged(previous,fresh) ? fresh.version : previous.ack_required_version || previous.version;
@@ -184,6 +186,7 @@ function currentSelection() {
 
 async function reloadLocal() {
   [state.assignments, state.events, state.photos] = await Promise.all(['assignments','events','photos'].map(name => all(state.db, name)));
+  state.assignments = state.assignments.map(a => ({...a,trips:Array.isArray(a.trips) ? a.trips : []}));
   state.assignments.sort((a,b) => b.departure_day.localeCompare(a.departure_day) || b.version - a.version);
 }
 async function refreshAssignments() {
@@ -193,7 +196,8 @@ async function refreshAssignments() {
     const response = await request('/assignments');
     const known = new Set(state.assignments.map(a => a.id));
     const autoAck = [];
-    for (const item of response.assignments || []) {
+    for (const raw of response.assignments || []) {
+      const item = {...raw,trips:Array.isArray(raw.trips) ? raw.trips : []};
       const previous = state.assignments.find(a => a.id === item.id);
       if (previous && phase(previous) === 'Принята' && keysOnlyVersionBump(previous,item)) autoAck.push(item.id);
       const merged = mergeAssignment(previous, item);
@@ -230,7 +234,8 @@ async function refreshAssignments() {
 }
 async function initDriver(driverId) {
   state.driverId = driverId;
-  localStorage.setItem(`arm_driver_last_${prefix || 'test3'}`, driverId);
+  try { localStorage.setItem(`arm_driver_last_${prefix || 'test3'}`, driverId); }
+  catch (error) { console.warn('Не удалось сохранить привязку локально', error); }
   state.db?.close();
   state.db = await openDriverDb(prefix || 'test3', driverId);
   await reloadLocal();
@@ -254,18 +259,36 @@ async function start() {
     if (event.data?.type === 'assignment-updated' && state.driverId) refreshAssignments();
   });
   connection.textContent = navigator.onLine ? '' : 'Нет сети. Неотправленные действия остаются на этом iPhone.';
-  try {
-    const session = await request('/session');
-    state.dispatcherPhone = session.dispatcher_phone || '';
-    await initDriver(session.driver_id);
-  } catch (error) {
-    const last = localStorage.getItem(`arm_driver_last_${prefix || 'test3'}`);
-    if (error.status !== 401 && last) {
+  let session;
+  const sessionController = new AbortController();
+  const sessionTimer = setTimeout(() => sessionController.abort(), 15000);
+  try { session = await request('/session', {signal:sessionController.signal}); }
+  catch (error) {
+    let last = null;
+    try { last = localStorage.getItem(`arm_driver_last_${prefix || 'test3'}`); } catch { /* Браузер мог запретить localStorage. */ }
+    if (error.status === 401 || !last) { renderUnconfigured(); return; }
+    try {
       await initDriver(last);
       state.lastError = 'Сервер недоступен: данные взяты из памяти iPhone';
       render();
-    } else renderUnconfigured();
-  }
+    } catch (storageError) { renderStartupError(storageError); }
+    return;
+  } finally { clearTimeout(sessionTimer); }
+  state.dispatcherPhone = session.dispatcher_phone || '';
+  try { await initDriver(session.driver_id); }
+  catch (error) { renderStartupError(error); }
+}
+
+function renderStartupError(error) {
+  console.error('Не удалось открыть локальные данные водителя', error);
+  nav.hidden = true;
+  currentBar.hidden = true;
+  assignmentNotice.hidden = true;
+  queueBanner.innerHTML = '';
+  main.innerHTML = `<section class="page"><h1 class="section-title">Не удалось открыть данные телефона</h1>
+    <p class="inline-error">${escapeHTML(errorText(error))}</p>
+    <p>Сохранённые события и фото не удалены. Попробуйте открыть приложение ещё раз.</p>
+    <button class="button wide" data-action="reload-app">Повторить</button></section>`;
 }
 
 function renderUnconfigured() {
@@ -548,7 +571,7 @@ function renderSettings() {
   const a = activeAssignment();
   const storedName = localStorage.getItem(`arm_driver_name_${prefix || 'test3'}_${state.driverId}`);
   main.innerHTML = `<section class="page"><h2 class="screen-title">Настройки</h2>
-    <div class="fields">${field('Водитель',storedName || a?.driver?.name || '—')}${!storedName && !a?.driver?.name ? '<p class="muted-text">ФИО появится с первой разнарядкой. Проверьте QR водителя, если разнарядки уже приходили.</p>' : ''}${a?.vehicle ? field('Машина',[a.vehicle.name,a.vehicle.plate].filter(Boolean).join(' ')) : ''}${field('Контур',prefix === '/prod' ? 'Рабочая база' : 'Тестовая база test3')}${field('Версия приложения','веб · 2026.11.18')}</div>
+    <div class="fields">${field('Водитель',storedName || a?.driver?.name || '—')}${!storedName && !a?.driver?.name ? '<p class="muted-text">ФИО появится с первой разнарядкой. Проверьте QR водителя, если разнарядки уже приходили.</p>' : ''}${a?.vehicle ? field('Машина',[a.vehicle.name,a.vehicle.plate].filter(Boolean).join(' ')) : ''}${field('Контур',prefix === '/prod' ? 'Рабочая база' : 'Тестовая база test3')}${field('Версия приложения','веб · 2026.11.18.1')}</div>
     ${dispatcherButton()}
     <h2 class="section-label">Уведомления</h2><p class="subtitle">Добавьте сайт на экран «Домой», затем разрешите уведомления на iPhone.</p><button class="button secondary wide" data-action="push-enable">Включить уведомления</button>
     <button class="button secondary wide" data-action="check-update">Проверить обновления</button>
@@ -867,6 +890,7 @@ document.addEventListener('click', async event => {
       }
     }
     if (action==='push-enable') await enablePush();
+    if (action==='reload-app') location.reload();
     if (action==='check-update') {
       if ('serviceWorker' in navigator) await navigator.serviceWorker.ready.then(registration => registration.update());
       location.reload();
