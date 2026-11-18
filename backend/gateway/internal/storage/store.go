@@ -525,13 +525,17 @@ func readJSON(path string, dst any) error {
 }
 
 func writeJSON(path string, value any) error {
+	return writeJSONMode(path, value, 0o644)
+}
+
+func writeJSONMode(path string, value any, mode os.FileMode) error {
 	tmp := path + ".tmp"
 	raw, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
 	raw = append(raw, '\n')
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	if err := os.WriteFile(tmp, raw, mode); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

@@ -6,17 +6,23 @@ import (
 )
 
 type Config struct {
-	HTTPPort      string
-	DataDir       string
-	GatewayToken  string
-	MobileToken   string
-	OneCBaseURL   string
-	OneCToken     string
-	OneCEventsURL string
-	OneCPhotoURL  string
-	OneCUsername  string
-	OneCPassword  string
-	FCMCredsFile  string
+	HTTPPort         string
+	DataDir          string
+	GatewayToken     string
+	MobileToken      string
+	OneCBaseURL      string
+	OneCToken        string
+	OneCEventsURL    string
+	OneCPhotoURL     string
+	OneCUsername     string
+	OneCPassword     string
+	FCMCredsFile     string
+	WebDir           string
+	WebAdminToken    string
+	WebCookieName    string
+	WebCookiePath    string
+	WebPushPublicKey string
+	WebPushSubject   string
 
 	// Папка с APK для самообновления приложения: latest.json + сам файл.
 	// Выкладывается скриптом tools/release-apk.sh, шлюз только читает.
@@ -60,11 +66,16 @@ func FromEnv() Config {
 		// URL-шаблон в 1С зарегистрирован как "Photo" (с большой буквы) —
 		// в отличие от "events", он регистрозависим и с маленькой буквы
 		// отдаёт 404 (проверено curl'ом напрямую разработчиком 1С).
-		OneCPhotoURL: baseURL + "/prtr_driver/Photo",
-		OneCUsername: os.Getenv("ONE_C_USERNAME"),
-		OneCPassword: os.Getenv("ONE_C_PASSWORD"),
-		FCMCredsFile: os.Getenv("FCM_SERVICE_ACCOUNT_FILE"),
-		ReleasesDir:  env("RELEASES_DIR", "./releases"),
+		OneCPhotoURL:   baseURL + "/prtr_driver/Photo",
+		OneCUsername:   os.Getenv("ONE_C_USERNAME"),
+		OneCPassword:   os.Getenv("ONE_C_PASSWORD"),
+		FCMCredsFile:   os.Getenv("FCM_SERVICE_ACCOUNT_FILE"),
+		WebDir:         env("WEB_DIR", "../../web"),
+		WebAdminToken:  os.Getenv("WEB_ADMIN_TOKEN"),
+		WebCookieName:  env("WEB_COOKIE_NAME", "arm_driver_web"),
+		WebCookiePath:  env("WEB_COOKIE_PATH", "/"),
+		WebPushSubject: env("WEB_PUSH_SUBJECT", "https://arm-driver.profstroy-services.ru"),
+		ReleasesDir:    env("RELEASES_DIR", "./releases"),
 
 		DocumentPendingRetentionDays:   envInt("DOCUMENT_PENDING_RETENTION_DAYS", 90),
 		DocumentDeliveredRetentionDays: envInt("DOCUMENT_DELIVERED_RETENTION_DAYS", 7),

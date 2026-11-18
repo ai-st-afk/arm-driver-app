@@ -1,5 +1,6 @@
 services:
   gateway:
+    image: arm-driver-app-gateway-test3
     logging:
       driver: json-file
       options:
@@ -13,6 +14,7 @@ services:
       HTTP_PORT: "8080"
       DATA_DIR: "/app/data"
       RELEASES_DIR: "/app/releases"
+      WEB_COOKIE_NAME: "arm_driver_web_test3"
     networks:
       - edge
     labels:
@@ -44,6 +46,8 @@ services:
       HTTP_PORT: "8080"
       DATA_DIR: "/app/data"
       RELEASES_DIR: "/app/releases"
+      WEB_COOKIE_NAME: "arm_driver_web_prod"
+      WEB_COOKIE_PATH: "/prod"
     networks:
       - edge
     labels:
