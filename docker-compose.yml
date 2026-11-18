@@ -33,7 +33,7 @@ services:
       - ./releases:/app/releases:ro
 
   gateway-prod:
-    image: arm-driver-app-gateway
+    image: arm-driver-app-gateway:iphone-web-20261118
     logging:
       driver: json-file
       options:
