@@ -14,8 +14,8 @@ const context = vm.createContext({
   window:{},
   setTimeout,clearTimeout,Date,Intl,console:{error:() => {},warn:() => {}},
 });
-vm.runInContext(source + '\nglobalThis.parity = {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError};',context);
-const {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError} = context.parity;
+vm.runInContext(source + '\nglobalThis.parity = {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError,normalizeLocalRecords,assignmentEvents,pendingBanner,localIntegrityBanner};',context);
+const {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError,normalizeLocalRecords,assignmentEvents,pendingBanner,localIntegrityBanner} = context.parity;
 const id = n => `${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`;
 const trip = (n, overrides={}) => ({id:id(n),order:n,status:'Назначена',load_point:{name:'Завод'},unload_point:{name:'Клиент'},stages:null,next_stage:'ПрибылНаПогрузку',...overrides});
 const assignment = (n, overrides={}) => ({id:id(n),version:1,number:String(n),departure_day:'2026-11-18',status:'Назначена',
@@ -102,4 +102,21 @@ test('сбой локального хранилища показывает пр
   assert.match(main.innerHTML,/Чтение events/);
   assert.match(main.innerHTML,/Сохранённые события и фото не удалены/);
   assert.match(main.innerHTML,/Повторить/);
+});
+
+test('нечитаемые записи Safari не роняют экран и не скрывают исправную очередь', () => {
+  const a=assignment(36,{trips:[undefined,trip(136)]});
+  const event={id:id(501),driver_id:id(99),assignment_id:a.id,type:'Ознакомление',time:'2026-11-19T10:00:00+03:00',sent:false};
+  const records=normalizeLocalRecords([undefined,a],[undefined,event],[]);
+  assert.equal(records.invalidCount,3);
+  assert.equal(records.assignments.length,1);
+  assert.equal(records.assignments[0].trips.length,1);
+  assert.equal(records.events.length,1);
+  state.assignments=records.assignments;
+  state.events=records.events;
+  state.photos=records.photos;
+  state.invalidLocalRecords=records.invalidCount;
+  assert.equal(assignmentEvents(a.id).length,1);
+  assert.match(pendingBanner(),/Не отправлено: 1/);
+  assert.match(localIntegrityBanner(),/Они не удалены/);
 });
