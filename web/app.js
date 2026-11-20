@@ -19,7 +19,7 @@ const queueBanner = document.querySelector('#queue-banner');
 environment.textContent = 'ТЕСТОВАЯ БАЗА';
 environment.hidden = prefix === '/prod';
 
-const state = { driverId: null, dispatcherPhone: '', db: null, assignments: [], events: [], photos: [], invalidLocalRecords: 0, screen: 'assignments', serviceOpen: false, selectedId: null, assignmentDetail: false, expandedTripId: null, lastActiveTripId: null, newAssignmentNoticeId: null, dismissedNewAssignmentId: null, dismissedReackVersion: null, refreshing: false, syncing: false, flushAgain: false, busy: false, lastError: '' };
+const state = { driverId: null, dispatcherPhone: '', db: null, assignments: [], events: [], photos: [], localIssues: [], screen: 'assignments', serviceOpen: false, selectedId: null, assignmentDetail: false, expandedTripId: null, lastActiveTripId: null, newAssignmentNoticeId: null, dismissedNewAssignmentId: null, dismissedReackVersion: null, refreshing: false, syncing: false, flushAgain: false, busy: false, lastError: '' };
 let pairScanner = null;
 let heldFlushTimer = null;
 
@@ -75,8 +75,12 @@ function pendingBanner() {
   return `<div class="pending"><strong>Не отправлено: ${items.length}</strong>${error ? `<div>${escapeHTML(error)}</div>` : 'Проверьте связь с сервером.'}<button class="button secondary" data-action="retry">Повторить</button></div>`;
 }
 function localIntegrityBanner() {
-  if (!state.invalidLocalRecords) return '';
-  return `<div class="pending"><strong>Ошибка данных на телефоне: ${state.invalidLocalRecords}</strong><div>Часть сохранённых записей не удалось прочитать. Они не удалены. Сообщите разработчику и не очищайте данные сайта.</div></div>`;
+  if (!state.localIssues.length) return '';
+  const names = {assignments:'разнарядка',trips:'ездка',events:'событие',photos:'фото'};
+  const affected = [...new Set(state.localIssues.map(issue => names[issue.store]))].join(', ');
+  const unconfirmed = state.localIssues.some(issue => ['events','photos'].includes(issue.store) && issue.sent !== true);
+  const details = state.localIssues.map(issue => `${names[issue.store]} ${issue.id || `запись ${issue.index + 1}`}: ${issue.missing.join(', ') || 'неизвестная ошибка'}; отправлено: ${issue.sent === true ? 'да' : issue.sent === false ? 'нет' : 'неизвестно'}`);
+  return `<div class="pending"><strong>Ошибка данных на телефоне: ${state.localIssues.length} (${escapeHTML(affected)})</strong><div>Запись не удалена.${unconfirmed ? ' Её отправка не подтверждена.' : ''} Не очищайте данные сайта и сообщите разработчику.</div><details><summary>Подробности для разработчика</summary><small>${details.map(escapeHTML).join('<br>')}</small></details></div>`;
 }
 function routeTitle(point) { return label(point?.name || point?.address || 'Адрес не указан'); }
 function routeAddress(point) { return point?.address && point.address !== point.name ? `<small class="muted-text">${escapeHTML(point.address)}</small>` : ''; }
@@ -194,31 +198,35 @@ async function reloadLocal() {
   state.assignments = records.assignments;
   state.events = records.events;
   state.photos = records.photos;
-  if (records.invalidCount && records.invalidCount !== state.invalidLocalRecords) {
-    console.error('Локальное хранилище вернуло нечитаемые записи', {count:records.invalidCount});
+  if (records.issues.length && JSON.stringify(records.issues) !== JSON.stringify(state.localIssues)) {
+    console.error('Локальное хранилище вернуло нечитаемые записи', records.issues);
   }
-  state.invalidLocalRecords = records.invalidCount;
+  state.localIssues = records.issues;
   state.assignments.sort((a,b) => String(b.departure_day || '').localeCompare(String(a.departure_day || '')) || (b.version || 0) - (a.version || 0));
 }
 function normalizeLocalRecords(assignments, events, photos) {
-  let invalidCount = 0;
-  const valid = (items, required) => {
+  const issues = [];
+  const valid = (items, store, required) => {
     if (!Array.isArray(items)) throw new Error('Локальное хранилище вернуло неверный список записей');
-    return items.filter(item => {
-      const ok = item !== null && typeof item === 'object' && !Array.isArray(item) && required.every(field => typeof item[field] === 'string' && item[field].length > 0);
-      if (!ok) invalidCount++;
-      return ok;
-    });
+    const clean = [];
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      const record = item !== null && typeof item === 'object' && !Array.isArray(item);
+      const missing = record ? required.filter(field => typeof item[field] !== 'string' || !item[field]) : ['запись пуста'];
+      if (missing.length) issues.push({store,index,id:record && typeof item.id === 'string' ? item.id : '',missing,sent:record ? item.sent : undefined});
+      else clean.push(item);
+    }
+    return clean;
   };
-  const cleanAssignments = valid(assignments, ['id']).map(a => {
-    const trips = Array.isArray(a.trips) ? valid(a.trips, ['id']) : [];
+  const cleanAssignments = valid(assignments, 'assignments', ['id']).map(a => {
+    const trips = Array.isArray(a.trips) ? valid(a.trips, 'trips', ['id']) : [];
     return {...a,trips};
   });
   return {
     assignments:cleanAssignments,
-    events:valid(events, ['id','driver_id','assignment_id','type','time']),
-    photos:valid(photos, ['id','driver_id','assignment_id','event_id','kind']),
-    invalidCount,
+    events:valid(events, 'events', ['id','driver_id','assignment_id','type','time']),
+    photos:valid(photos, 'photos', ['id','driver_id','assignment_id','event_id','kind']),
+    issues,
   };
 }
 async function refreshAssignments() {
@@ -603,7 +611,7 @@ function renderSettings() {
   const a = activeAssignment();
   const storedName = localStorage.getItem(`arm_driver_name_${prefix || 'test3'}_${state.driverId}`);
   main.innerHTML = `<section class="page"><h2 class="screen-title">Настройки</h2>
-    <div class="fields">${field('Водитель',storedName || a?.driver?.name || '—')}${!storedName && !a?.driver?.name ? '<p class="muted-text">ФИО появится с первой разнарядкой. Проверьте QR водителя, если разнарядки уже приходили.</p>' : ''}${a?.vehicle ? field('Машина',[a.vehicle.name,a.vehicle.plate].filter(Boolean).join(' ')) : ''}${field('Контур',prefix === '/prod' ? 'Рабочая база' : 'Тестовая база test3')}${field('Версия приложения','веб · 2026.11.19.1')}</div>
+    <div class="fields">${field('Водитель',storedName || a?.driver?.name || '—')}${!storedName && !a?.driver?.name ? '<p class="muted-text">ФИО появится с первой разнарядкой. Проверьте QR водителя, если разнарядки уже приходили.</p>' : ''}${a?.vehicle ? field('Машина',[a.vehicle.name,a.vehicle.plate].filter(Boolean).join(' ')) : ''}${field('Контур',prefix === '/prod' ? 'Рабочая база' : 'Тестовая база test3')}${field('Версия приложения','веб · 2026.11.20.1')}</div>
     ${dispatcherButton()}
     <h2 class="section-label">Уведомления</h2><p class="subtitle">Добавьте сайт на экран «Домой», затем разрешите уведомления на iPhone.</p><button class="button secondary wide" data-action="push-enable">Включить уведомления</button>
     <button class="button secondary wide" data-action="check-update">Проверить обновления</button>

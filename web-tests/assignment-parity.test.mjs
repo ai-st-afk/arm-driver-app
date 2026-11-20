@@ -108,15 +108,27 @@ test('нечитаемые записи Safari не роняют экран и �
   const a=assignment(36,{trips:[undefined,trip(136)]});
   const event={id:id(501),driver_id:id(99),assignment_id:a.id,type:'Ознакомление',time:'2026-11-19T10:00:00+03:00',sent:false};
   const records=normalizeLocalRecords([undefined,a],[undefined,event],[]);
-  assert.equal(records.invalidCount,3);
+  assert.equal(records.issues.length,3);
   assert.equal(records.assignments.length,1);
   assert.equal(records.assignments[0].trips.length,1);
   assert.equal(records.events.length,1);
   state.assignments=records.assignments;
   state.events=records.events;
   state.photos=records.photos;
-  state.invalidLocalRecords=records.invalidCount;
+  state.localIssues=records.issues;
   assert.equal(assignmentEvents(a.id).length,1);
   assert.match(pendingBanner(),/Не отправлено: 1/);
-  assert.match(localIntegrityBanner(),/Они не удалены/);
+  assert.match(localIntegrityBanner(),/разнарядка, ездка, событие/);
+  assert.match(localIntegrityBanner(),/Её отправка не подтверждена/);
+  assert.match(localIntegrityBanner(),/запись пуста/);
+});
+
+test('диагностика отличает неполное событие от проблемы в разнарядке', () => {
+  const records=normalizeLocalRecords([assignment(86)],[{id:id(502),assignment_id:id(86),type:'НачалоСмены',time:'2026-11-20T13:40:00+03:00',sent:false}],[]);
+  assert.equal(records.issues.length,1);
+  assert.equal(records.issues[0].store,'events');
+  assert.deepEqual(Array.from(records.issues[0].missing),['driver_id']);
+  state.localIssues=records.issues;
+  assert.match(localIntegrityBanner(),/событие/);
+  assert.match(localIntegrityBanner(),/driver_id/);
 });

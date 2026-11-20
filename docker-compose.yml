@@ -1,6 +1,6 @@
 services:
   gateway:
-    image: arm-driver-app-gateway-test3:iphone-queue-fix-20261119
+    image: arm-driver-app-gateway-test3:iphone-local-diagnostics-20261120
     logging:
       driver: json-file
       options:
