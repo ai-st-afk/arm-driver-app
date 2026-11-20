@@ -611,7 +611,7 @@ function renderSettings() {
   const a = activeAssignment();
   const storedName = localStorage.getItem(`arm_driver_name_${prefix || 'test3'}_${state.driverId}`);
   main.innerHTML = `<section class="page"><h2 class="screen-title">Настройки</h2>
-    <div class="fields">${field('Водитель',storedName || a?.driver?.name || '—')}${!storedName && !a?.driver?.name ? '<p class="muted-text">ФИО появится с первой разнарядкой. Проверьте QR водителя, если разнарядки уже приходили.</p>' : ''}${a?.vehicle ? field('Машина',[a.vehicle.name,a.vehicle.plate].filter(Boolean).join(' ')) : ''}${field('Контур',prefix === '/prod' ? 'Рабочая база' : 'Тестовая база test3')}${field('Версия приложения','веб · 2026.11.20.1')}</div>
+    <div class="fields">${field('Водитель',storedName || a?.driver?.name || '—')}${!storedName && !a?.driver?.name ? '<p class="muted-text">ФИО появится с первой разнарядкой. Проверьте QR водителя, если разнарядки уже приходили.</p>' : ''}${a?.vehicle ? field('Машина',[a.vehicle.name,a.vehicle.plate].filter(Boolean).join(' ')) : ''}${field('Контур',prefix === '/prod' ? 'Рабочая база' : 'Тестовая база test3')}${field('Версия приложения','веб · 2026.11.20.2')}</div>
     ${dispatcherButton()}
     <h2 class="section-label">Уведомления</h2><p class="subtitle">Добавьте сайт на экран «Домой», затем разрешите уведомления на iPhone.</p><button class="button secondary wide" data-action="push-enable">Включить уведомления</button>
     <button class="button secondary wide" data-action="check-update">Проверить обновления</button>
@@ -751,13 +751,21 @@ function capturePhoto(stream, prompt, index, total) {
 
 function missingPhotoDecision(missing, cameraDenied) {
   return new Promise(resolve => {
-    showModal(`<h2>Не все фото сделаны</h2>${cameraDenied ? '<p class="inline-error">Нет доступа к камере. Разрешите её в настройках телефона.</p>' : ''}<p>Осталось снять: ${missing.map(step => escapeHTML(step.short || step.label)).join(', ')}.</p><p>Если снять нельзя — укажите причину, этап отметится без недостающих фото.</p><label class="field"><span>Причина (обязательно)</span><textarea id="missing-reason" maxlength="300"></textarea></label><button class="button wide" id="continue-photo">Продолжить съёмку</button><button class="button secondary wide" id="without-photo" disabled>Без недостающих</button><button class="button ghost wide" id="abort-photo">Отменить этап</button>`);
+    showModal(`<h2>Не все фото сделаны</h2>${cameraDenied ? '<p class="inline-error">Нет доступа к камере. Разрешите её в настройках телефона.</p>' : ''}<p>Осталось снять: ${missing.map(step => escapeHTML(step.short || step.label)).join(', ')}. Этап можно отметить без них.</p><label class="field"><span>Комментарий к фото (необязательно)</span><textarea id="missing-reason" maxlength="300"></textarea></label><button class="button wide" id="continue-photo">Продолжить съёмку</button><button class="button secondary wide" id="without-photo">Отметить без остальных фото</button><button class="button ghost wide" id="abort-photo">Отменить этап</button>`);
     const reason = modal.querySelector('#missing-reason');
     const without = modal.querySelector('#without-photo');
-    reason.oninput = () => { without.disabled = !reason.value.trim(); };
     modal.querySelector('#continue-photo').onclick = () => resolve({action:'continue'});
     without.onclick = () => resolve({action:'without',reason:reason.value.trim()});
     modal.querySelector('#abort-photo').onclick = () => resolve({action:'abort'});
+  });
+}
+function chooseStagePhotos() {
+  return new Promise(resolve => {
+    showModal('<h2>Фото рейса</h2><p>Фото можно приложить по желанию. Этап отметится и без них.</p><button class="button wide large" id="stage-without-photo">Отметить без фото</button><button class="button secondary wide" id="stage-with-photo">Сделать фото</button><button class="button ghost wide" id="stage-photo-cancel">Отмена</button>');
+    const choose = value => { closeModal(); resolve(value); };
+    modal.querySelector('#stage-without-photo').onclick = () => choose(false);
+    modal.querySelector('#stage-with-photo').onclick = () => choose(true);
+    modal.querySelector('#stage-photo-cancel').onclick = () => choose(null);
   });
 }
 
@@ -801,7 +809,9 @@ async function doStep(a,trip,type) {
       if (answer === null) return;
       comment = answer;
     }
-    const result = photoPrompts[type] ? await photoFlow(photoPrompts[type],true) : {photos:[]};
+    const takePhotos = photoPrompts[type] ? await chooseStagePhotos() : false;
+    if (takePhotos === null) return;
+    const result = takePhotos ? await photoFlow(photoPrompts[type],true) : {photos:[]};
     if (result.aborted) return;
     if (result.missingReason) comment = [comment,`${result.photos.length ? 'Не все фото' : 'Без фото'}: ${result.missingReason}`].filter(Boolean).join('; ').slice(0,500);
     const moment = await eventMoment();
@@ -811,7 +821,7 @@ async function doStep(a,trip,type) {
 }
 function askComment(title) {
   return new Promise(resolve => {
-    showModal(`<h2>${escapeHTML(title)}</h2><p>Если клиент принял только часть груза, укажите в комментарии, сколько не приняли.</p><label class="field"><span>Комментарий (необязательно)</span><textarea id="comment" maxlength="500"></textarea></label><button class="button wide" id="comment-ok">Продолжить к фото</button><button class="button ghost wide" id="comment-cancel">Отмена</button>`);
+    showModal(`<h2>${escapeHTML(title)}</h2><p>Если клиент принял только часть груза, укажите в комментарии, сколько не приняли.</p><label class="field"><span>Комментарий (необязательно)</span><textarea id="comment" maxlength="500"></textarea></label><button class="button wide" id="comment-ok">Продолжить</button><button class="button ghost wide" id="comment-cancel">Отмена</button>`);
     modal.querySelector('#comment-ok').onclick = () => { const text=modal.querySelector('#comment').value.trim();closeModal();resolve(text); };
     modal.querySelector('#comment-cancel').onclick = () => {closeModal();resolve(null);};
   });

@@ -47,8 +47,8 @@ android {
         applicationId = "ru.profstroyservices.armdriver"
         minSdk = 29
         targetSdk = 35
-        versionCode = if (buildTarget == "test3") 56 else 55
-        versionName = if (buildTarget == "test3") "0.9.18-test3" else "0.9.17"
+        versionCode = if (buildTarget == "test3") 58 else 57
+        versionName = if (buildTarget == "test3") "0.9.19-test3" else "0.9.19"
         manifestPlaceholders["appLabel"] =
             if (buildTarget == "test3") "АРМ водителя (ТЕСТ)" else "АРМ водителя"
 

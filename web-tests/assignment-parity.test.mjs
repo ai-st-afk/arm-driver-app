@@ -14,8 +14,8 @@ const context = vm.createContext({
   window:{},
   setTimeout,clearTimeout,Date,Intl,console:{error:() => {},warn:() => {}},
 });
-vm.runInContext(source + '\nglobalThis.parity = {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError,normalizeLocalRecords,assignmentEvents,pendingBanner,localIntegrityBanner};',context);
-const {state,main,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError,normalizeLocalRecords,assignmentEvents,pendingBanner,localIntegrityBanner} = context.parity;
+vm.runInContext(source + '\nglobalThis.parity = {state,main,modal,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError,normalizeLocalRecords,assignmentEvents,pendingBanner,localIntegrityBanner,chooseStagePhotos};',context);
+const {state,main,modal,mergeAssignment,keysOnlyVersionBump,activeAssignment,tripProgress,acknowledged,phase,renderTrips,renderSettings,renderService,renderStartupError,normalizeLocalRecords,assignmentEvents,pendingBanner,localIntegrityBanner,chooseStagePhotos} = context.parity;
 const id = n => `${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`;
 const trip = (n, overrides={}) => ({id:id(n),order:n,status:'Назначена',load_point:{name:'Завод'},unload_point:{name:'Клиент'},stages:null,next_stage:'ПрибылНаПогрузку',...overrides});
 const assignment = (n, overrides={}) => ({id:id(n),version:1,number:String(n),departure_day:'2026-11-18',status:'Назначена',
@@ -131,4 +131,17 @@ test('диагностика отличает неполное событие о
   state.localIssues=records.issues;
   assert.match(localIntegrityBanner(),/событие/);
   assert.match(localIntegrityBanner(),/driver_id/);
+});
+
+test('водитель может отметить этап без открытия камеры', async () => {
+  const buttons=new Map();
+  modal.querySelector=selector => {
+    if (!buttons.has(selector)) buttons.set(selector,{});
+    return buttons.get(selector);
+  };
+  const choice=chooseStagePhotos();
+  assert.match(modal.innerHTML,/Отметить без фото/);
+  buttons.get('#stage-without-photo').onclick();
+  assert.equal(await choice,false);
+  assert.equal(modal.hidden,true);
 });

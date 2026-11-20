@@ -105,9 +105,9 @@ private const val FeedbackAutoDismissMillis = 5_000L
 
 private val actionLabels = mapOf(
     EventTypes.PRIBYL_NA_POGRUZKU to "Прибыл на погрузку",
-    EventTypes.ZAGRUZILSYA_V_PUT to "Загрузился, в пути (фото)",
+    EventTypes.ZAGRUZILSYA_V_PUT to "Загрузился, в пути",
     EventTypes.PRIBYL_NA_RAZGRUZKU to "Прибыл на разгрузку",
-    EventTypes.RAZGRUZILSYA to "Разгрузился (фото)"
+    EventTypes.RAZGRUZILSYA to "Разгрузился"
 )
 
 // Во вкладке «Мои рейсы» всегда только текущая разнарядка (см.
@@ -133,8 +133,9 @@ fun RoadmapScreen(
     // Съёмка этапа идёт в отдельном окне камеры; пока оно открыто, этот
     // экран может пересоздаться — поэтому состояние сохраняемое.
     var session by rememberSaveable(stateSaver = PhotoSessionSaver) { mutableStateOf<PhotoSession?>(null) }
+    var choosePhotos by rememberSaveable { mutableStateOf(false) }
     var askMissing by rememberSaveable { mutableStateOf(false) }
-    // Пока этап снимается (камера или вопрос о недостающих фото),
+    // Пока водитель выбирает фото или снимает этап,
     // обновление не ставим — оно закрыло бы приложение вместе со снимками.
     val photoInProgress = session != null || failureDraft != null || unloadCommentTripId != null
     DisposableEffect(photoInProgress) {
@@ -229,7 +230,7 @@ fun RoadmapScreen(
                         } else if (photoStepsFor(type) != null) {
                             val started = PhotoSession(trip.id, type, emptyList())
                             session = started
-                            launchCamera(started)
+                            choosePhotos = true
                         } else {
                             viewModel.onTripAction(trip, type)
                         }
@@ -317,14 +318,31 @@ fun RoadmapScreen(
                     val started = PhotoSession(tripId, EventTypes.RAZGRUZILSYA, emptyList(), unloadComment.trim())
                     unloadCommentTripId = null
                     session = started
-                    launchCamera(started)
-                }) { Text("Продолжить к фото") }
+                    choosePhotos = true
+                }) { Text("Продолжить") }
             },
             dismissButton = { TextButton(onClick = { unloadCommentTripId = null }) { Text("Отмена") } }
         )
     }
 
     val pending = session
+    if (choosePhotos && pending != null) {
+        AlertDialog(
+            onDismissRequest = { choosePhotos = false; session = null },
+            title = { Text("Фото рейса") },
+            text = { Text("Фото можно приложить по желанию. Этап отметится и без них.") },
+            confirmButton = {
+                Button(onClick = {
+                    choosePhotos = false
+                    session = null
+                    viewModel.onStepPhotos(pending.tripId, pending.eventType, emptyList(), comment = pending.comment)
+                }) { Text("Отметить без фото") }
+            },
+            dismissButton = {
+                TextButton(onClick = { choosePhotos = false; launchCamera(pending) }) { Text("Сделать фото") }
+            }
+        )
+    }
     if (askMissing && pending != null) {
         MissingPhotosDialog(
             missing = pending.steps.filter { step -> pending.photos.none { it.kind == step.kind } },
@@ -347,7 +365,7 @@ fun RoadmapScreen(
     }
 }
 
-// Этап с обязательными фото, который снимается сейчас: рейс, тип события и
+// Этап, к которому водитель решил приложить фото: рейс, тип события и
 // уже принятые снимки (вместе с теми, что сняты до выхода из камеры).
 private data class PhotoSession(val tripId: String, val eventType: String, val photos: List<CapturedPhoto>, val comment: String = "") {
     val steps: List<PhotoStep> get() = photoStepsFor(eventType).orEmpty()
@@ -478,17 +496,14 @@ private fun RoadmapList(
     }
 }
 
-// Водитель вышел из камеры, не сняв всё. Фото обязательны, но закрыть рейс
-// всё равно надо — иначе встаёт смена: тогда только с причиной, она уйдёт в
-// 1С комментарием. Уже снятые кадры не теряются ни при «Продолжить», ни при
-// отметке без недостающих. Случайным тапом мимо окно не закрывается — это
-// выбросило бы снятые кадры.
+// Водитель вышел из камеры до окончания съёмки. Сохранённые кадры остаются
+// привязанными к этапу, если он отметит его без остальных фото.
 @Composable
 private fun MissingPhotosDialog(
     missing: List<PhotoStep>,
     cameraDenied: Boolean,
     onContinue: () -> Unit,
-    onMarkWithout: (String) -> Unit,
+    onMarkWithout: (String?) -> Unit,
     onAbort: () -> Unit
 ) {
     var reason by rememberSaveable { mutableStateOf("") }
@@ -509,14 +524,11 @@ private fun MissingPhotosDialog(
                     text = "Осталось снять: ${missing.joinToString(", ") { it.kind.label() }}.",
                     style = MaterialTheme.typography.bodyMedium
                 )
-                Text(
-                    text = "Если снять нельзя — укажите причину, этап отметится без недостающих фото.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Text("Этап можно отметить без остальных фото.")
                 OutlinedTextField(
                     value = reason,
                     onValueChange = { reason = it },
-                    label = { Text("Причина (обязательно)") },
+                    label = { Text("Комментарий к фото (необязательно)") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 TextButton(onClick = onAbort) { Text("Отменить этап") }
@@ -526,8 +538,8 @@ private fun MissingPhotosDialog(
             Button(onClick = onContinue) { Text("Продолжить съёмку") }
         },
         dismissButton = {
-            TextButton(onClick = { onMarkWithout(reason) }, enabled = reason.isNotBlank()) {
-                Text("Без недостающих")
+            TextButton(onClick = { onMarkWithout(reason.trim().ifBlank { null }) }) {
+                Text("Отметить без остальных фото")
             }
         }
     )
