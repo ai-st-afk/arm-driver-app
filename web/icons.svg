@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <symbol id="assignment" viewBox="0 0 24 24"><path d="M19 3h-4.18A3 3 0 0 0 12 1a3 3 0 0 0-2.82 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm7 18H5V5h2v3h10V5h2v16ZM7 11h10v2H7v-2Zm0 4h10v2H7v-2Z"/></symbol>
-  <symbol id="truck" viewBox="0 0 24 24"><path d="M20 8h-3V4H1v13h2a3 3 0 0 0 6 0h7a3 3 0 0 0 6 0h1v-5l-3-4Zm-14 11a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm11-9h2l1.5 2H17v-2Zm2 9a1 1 0 1 1 0-2 1 1 0 0 1 0 2ZM3 6h12v9H8.2a3 3 0 0 0-4.4 0H3V6Z"/></symbol>
-  <symbol id="history" viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.9 3.9L9 12H6a7 7 0 1 1 2 4.95l-1.42 1.42A9 9 0 1 0 13 3Zm-1 5v5l4.3 2.5 1-1.7-3.3-1.9V8h-2Z"/></symbol>
-  <symbol id="settings" viewBox="0 0 24 24"><path d="M19.4 13a7 7 0 0 0 0-2l2-1.6-2-3.5-2.4 1a7 7 0 0 0-1.7-1L15 3h-4l-.3 2.9a7 7 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.6a7 7 0 0 0 0 2l-2 1.6 2 3.5 2.4-1a7 7 0 0 0 1.7 1L11 21h4l.3-2.9a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.6ZM13 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"/></symbol>
-</svg>

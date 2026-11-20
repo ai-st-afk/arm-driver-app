@@ -12,11 +12,8 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=build /out/arm-driver-gateway ./arm-driver-gateway
-COPY web/ ./web/
-
 ENV HTTP_PORT=8080 \
-    DATA_DIR=/app/data \
-    WEB_DIR=/app/web
+    DATA_DIR=/app/data
 
 EXPOSE 8080
 ENTRYPOINT ["./arm-driver-gateway"]

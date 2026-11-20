@@ -6,24 +6,18 @@ import (
 )
 
 type Config struct {
-	HTTPPort         string
-	DataDir          string
-	GatewayToken     string
-	MobileToken      string
-	OneCBaseURL      string
-	OneCToken        string
-	OneCEventsURL    string
-	OneCPhotoURL     string
-	OneCUsername     string
-	OneCPassword     string
-	FCMCredsFile     string
-	WebDir           string
-	WebAdminToken    string
-	WebCookieName    string
-	WebCookiePath    string
-	WebPushPublicKey string
-	WebPushSubject   string
-	DispatcherPhone  string
+	HTTPPort        string
+	DataDir         string
+	GatewayToken    string
+	MobileToken     string
+	OneCBaseURL     string
+	OneCToken       string
+	OneCEventsURL   string
+	OneCPhotoURL    string
+	OneCUsername    string
+	OneCPassword    string
+	FCMCredsFile    string
+	DispatcherPhone string
 
 	// Папка с APK для самообновления приложения: latest.json + сам файл.
 	// Выкладывается скриптом tools/release-apk.sh, шлюз только читает.
@@ -71,11 +65,6 @@ func FromEnv() Config {
 		OneCUsername:    os.Getenv("ONE_C_USERNAME"),
 		OneCPassword:    os.Getenv("ONE_C_PASSWORD"),
 		FCMCredsFile:    os.Getenv("FCM_SERVICE_ACCOUNT_FILE"),
-		WebDir:          env("WEB_DIR", "../../web"),
-		WebAdminToken:   os.Getenv("WEB_ADMIN_TOKEN"),
-		WebCookieName:   env("WEB_COOKIE_NAME", "arm_driver_web"),
-		WebCookiePath:   env("WEB_COOKIE_PATH", "/"),
-		WebPushSubject:  env("WEB_PUSH_SUBJECT", "https://arm-driver.profstroy-services.ru"),
 		DispatcherPhone: os.Getenv("DISPATCHER_PHONE"),
 		ReleasesDir:     env("RELEASES_DIR", "./releases"),
 

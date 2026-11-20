@@ -1,6 +1,6 @@
 services:
   gateway:
-    image: arm-driver-app-gateway-test3:safari-cursor-20261120
+    image: arm-driver-app-gateway-test3:web-removed-20261120
     logging:
       driver: json-file
       options:
@@ -14,7 +14,6 @@ services:
       HTTP_PORT: "8080"
       DATA_DIR: "/app/data"
       RELEASES_DIR: "/app/releases"
-      WEB_COOKIE_NAME: "arm_driver_web_test3"
     networks:
       - edge
     labels:
@@ -33,7 +32,7 @@ services:
       - ./releases:/app/releases:ro
 
   gateway-prod:
-    image: arm-driver-app-gateway:optional-photos-20261120
+    image: arm-driver-app-gateway:web-removed-20261120
     logging:
       driver: json-file
       options:
@@ -46,8 +45,6 @@ services:
       HTTP_PORT: "8080"
       DATA_DIR: "/app/data"
       RELEASES_DIR: "/app/releases"
-      WEB_COOKIE_NAME: "arm_driver_web_prod"
-      WEB_COOKIE_PATH: "/prod"
     networks:
       - edge
     labels:

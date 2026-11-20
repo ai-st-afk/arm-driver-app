@@ -2,7 +2,6 @@ package push
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 
 	"arm-driver-app/backend/gateway/internal/storage"
@@ -60,18 +59,6 @@ func (n AssignmentNotification) Body() string {
 
 type Sender interface {
 	SendAssignment(ctx context.Context, notification AssignmentNotification) error
-}
-
-type MultiSender []Sender
-
-func (senders MultiSender) SendAssignment(ctx context.Context, notification AssignmentNotification) error {
-	var failures []error
-	for _, sender := range senders {
-		if err := sender.SendAssignment(ctx, notification); err != nil {
-			failures = append(failures, err)
-		}
-	}
-	return errors.Join(failures...)
 }
 
 type DeviceLookup interface {

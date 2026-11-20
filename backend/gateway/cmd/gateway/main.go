@@ -46,13 +46,6 @@ func main() {
 		}
 		pushSender = fcmSender
 	}
-	webKeys, err := push.LoadOrCreateVAPID(cfg.DataDir)
-	if err != nil {
-		logger.Error("web push init failed", "error", err)
-		os.Exit(1)
-	}
-	cfg.WebPushPublicKey = webKeys.Public
-	pushSender = push.MultiSender{pushSender, push.NewWebSender(logger, httpClient, store, webKeys, cfg.WebPushSubject)}
 	api := httpapi.NewServer(cfg, logger, httpClient, store, pushSender)
 
 	go runDocumentCleanup(logger, store, cfg)

@@ -62,22 +62,17 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/mobile/app/latest", s.latestAppVersion)
 	mux.HandleFunc("GET /api/mobile/app/download", s.downloadApp)
 	mux.HandleFunc("GET /download", s.publicDownloadApp)
-	mux.HandleFunc("GET /web", s.webRedirect)
-	mux.HandleFunc("GET /web/", s.webStatic)
-	mux.HandleFunc("POST /api/web/admin/pairings", s.webCreatePairing)
-	mux.HandleFunc("POST /api/web/admin/revoke", s.webRevokeDriver)
-	mux.HandleFunc("POST /api/web/pair", s.webPair)
-	mux.HandleFunc("POST /api/web/pair-driver", s.webPairDriver)
-	mux.HandleFunc("GET /api/web/session", s.webSessionInfo)
-	mux.HandleFunc("POST /api/web/logout", s.webLogout)
-	mux.HandleFunc("GET /api/web/assignments", s.webAssignments)
-	mux.HandleFunc("GET /api/web/assignments/{id}", s.webAssignment)
-	mux.HandleFunc("POST /api/web/events", s.webEvents)
-	mux.HandleFunc("POST /api/web/documents", s.webDocument)
-	mux.HandleFunc("GET /api/web/push/key", s.webPushKey)
-	mux.HandleFunc("POST /api/web/push/subscriptions", s.webSavePush)
-	mux.HandleFunc("DELETE /api/web/push/subscriptions", s.webRemovePush)
+	mux.HandleFunc("/web", webGone)
+	mux.HandleFunc("/web/", webGone)
+	mux.HandleFunc("/api/web/", webGone)
 	return s.recover(s.requestLog(mux))
+}
+
+func webGone(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusGone)
+	_, _ = w.Write([]byte("Веб-приложение АРМ водителя отключено.\n"))
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
