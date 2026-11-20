@@ -25,11 +25,25 @@ export function openDriverDb(scope, driverId) {
 
 export function all(db, store) {
   return new Promise((resolve, reject) => {
-    const request = db.transaction(store, 'readonly').objectStore(store).getAll();
+    const transaction = db.transaction(store, 'readonly');
+    const request = transaction.objectStore(store).openCursor();
+    const records = [];
     let settled = false;
     const timer = setTimeout(() => { settled = true; reject(new Error(`Чтение ${store} не завершилось за 15 секунд`)); }, 15000);
-    request.onsuccess = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(request.result); };
-    request.onerror = () => { if (settled) return; settled = true; clearTimeout(timer); reject(request.error || new Error(`Не удалось прочитать ${store}`)); };
+    const fail = error => { if (settled) return; settled = true; clearTimeout(timer); reject(error); };
+    request.onsuccess = () => {
+      if (settled) return;
+      const cursor = request.result;
+      if (!cursor) return;
+      try {
+        records.push(cursor.value);
+        cursor.continue();
+      } catch (error) { fail(error); }
+    };
+    request.onerror = () => fail(request.error || new Error(`Не удалось прочитать ${store}`));
+    transaction.oncomplete = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(records); };
+    transaction.onerror = () => fail(transaction.error || new Error(`Не удалось прочитать ${store}`));
+    transaction.onabort = () => fail(transaction.error || new Error(`Чтение ${store} прервано`));
   });
 }
 

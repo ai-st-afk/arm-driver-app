@@ -611,7 +611,7 @@ function renderSettings() {
   const a = activeAssignment();
   const storedName = localStorage.getItem(`arm_driver_name_${prefix || 'test3'}_${state.driverId}`);
   main.innerHTML = `<section class="page"><h2 class="screen-title">Настройки</h2>
-    <div class="fields">${field('Водитель',storedName || a?.driver?.name || '—')}${!storedName && !a?.driver?.name ? '<p class="muted-text">ФИО появится с первой разнарядкой. Проверьте QR водителя, если разнарядки уже приходили.</p>' : ''}${a?.vehicle ? field('Машина',[a.vehicle.name,a.vehicle.plate].filter(Boolean).join(' ')) : ''}${field('Контур',prefix === '/prod' ? 'Рабочая база' : 'Тестовая база test3')}${field('Версия приложения','веб · 2026.11.20.2')}</div>
+    <div class="fields">${field('Водитель',storedName || a?.driver?.name || '—')}${!storedName && !a?.driver?.name ? '<p class="muted-text">ФИО появится с первой разнарядкой. Проверьте QR водителя, если разнарядки уже приходили.</p>' : ''}${a?.vehicle ? field('Машина',[a.vehicle.name,a.vehicle.plate].filter(Boolean).join(' ')) : ''}${field('Контур',prefix === '/prod' ? 'Рабочая база' : 'Тестовая база test3')}${field('Версия приложения','веб · 2026.11.20.3')}</div>
     ${dispatcherButton()}
     <h2 class="section-label">Уведомления</h2><p class="subtitle">Добавьте сайт на экран «Домой», затем разрешите уведомления на iPhone.</p><button class="button secondary wide" data-action="push-enable">Включить уведомления</button>
     <button class="button secondary wide" data-action="check-update">Проверить обновления</button>
