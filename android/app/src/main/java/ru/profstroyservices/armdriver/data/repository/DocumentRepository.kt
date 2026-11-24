@@ -2,6 +2,7 @@ package ru.profstroyservices.armdriver.data.repository
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,8 @@ import ru.profstroyservices.armdriver.data.network.GatewayApi
 import ru.profstroyservices.armdriver.data.network.userMessage
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,9 +42,19 @@ class DocumentRepository @Inject constructor(
     private val photosDir: File
         get() = File(context.filesDir, "photos").apply { mkdirs() }
 
-    // Камера приложения пишет снимок прямо сюда — галереи в этом пути нет
-    // вообще (инвариант «только с камеры», озвученный автором).
     fun createCaptureFile(): File = File(photosDir, "${UUID.randomUUID()}.jpg")
+
+    suspend fun copyFromGallery(uri: Uri): File = withContext(Dispatchers.IO) {
+        val target = createCaptureFile()
+        try {
+            val source = context.contentResolver.openInputStream(uri) ?: error("Не удалось открыть фото из галереи")
+            source.use { input -> target.outputStream().use(input::copyTo) }
+            target
+        } catch (error: Exception) {
+            target.delete()
+            throw error
+        }
+    }
 
     suspend fun enqueue(
         file: File,
@@ -51,8 +64,41 @@ class DocumentRepository @Inject constructor(
         eventId: String,
         kind: PhotoKind
     ) {
-        compressInPlace(file)
-        dao.insert(
+        enqueueBatch(listOf(file to null), driverId, assignmentId, tripId, eventId, kind)
+    }
+
+    suspend fun enqueueAssignmentPhotos(
+        photos: List<Pair<File, String?>>,
+        driverId: String,
+        assignmentId: String,
+        kind: PhotoKind
+    ) {
+        require(kind in setOf(PhotoKind.VEHICLE_KEYS, PhotoKind.VEHICLE_MEDIC, PhotoKind.FREE))
+        enqueueBatch(photos, driverId, assignmentId, "", null, kind)
+    }
+
+    suspend fun enqueueTripPhotos(
+        files: List<File>,
+        driverId: String,
+        assignmentId: String,
+        tripId: String,
+        eventId: String,
+        kind: PhotoKind
+    ) {
+        enqueueBatch(files.map { it to null }, driverId, assignmentId, tripId, eventId, kind)
+    }
+
+    private suspend fun enqueueBatch(
+        photos: List<Pair<File, String?>>,
+        driverId: String,
+        assignmentId: String,
+        tripId: String,
+        eventId: String?,
+        kind: PhotoKind
+    ) {
+        require(photos.isNotEmpty())
+        photos.forEach { (file, _) -> compressInPlace(file) }
+        dao.insertAll(photos.map { (file, comment) ->
             PendingPhotoEntity(
                 id = UUID.randomUUID().toString(),
                 tripId = tripId,
@@ -60,9 +106,10 @@ class DocumentRepository @Inject constructor(
                 assignmentId = assignmentId,
                 filePath = file.absolutePath,
                 eventId = eventId,
-                kind = kind.code
+                kind = kind.code,
+                comment = comment
             )
-        )
+        })
     }
 
     // Шаг откатили кнопкой «Отмена», пока он не ушёл в 1С: его фото тоже не
@@ -95,7 +142,13 @@ class DocumentRepository @Inject constructor(
                     photoId = photo.id.toRequestBody("text/plain".toMediaType()),
                     driverId = photo.driverId.toRequestBody("text/plain".toMediaType()),
                     assignmentId = photo.assignmentId.toRequestBody("text/plain".toMediaType()),
-                    tripId = photo.tripId.toRequestBody("text/plain".toMediaType()),
+                    tripId = photo.tripId.takeIf { it.isNotEmpty() }?.toRequestBody("text/plain".toMediaType()),
+                    comment = photo.comment?.toRequestBody("text/plain".toMediaType()),
+                    takenAt = photo.tripId.takeIf { it.isEmpty() }?.let {
+                        DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(
+                            Instant.ofEpochMilli(photo.enqueuedAt).atZone(DRIVER_TIME_ZONE).toOffsetDateTime()
+                        ).toRequestBody("text/plain".toMediaType())
+                    },
                     eventId = photo.eventId?.toRequestBody("text/plain".toMediaType()),
                     kind = photo.kind?.toRequestBody("text/plain".toMediaType()),
                     photo = MultipartBody.Part.createFormData(
@@ -142,7 +195,7 @@ class DocumentRepository @Inject constructor(
     // 4000×3000 и больше 5 МБ) — для читаемой подписи на накладной
     // это избыточно.
     private suspend fun compressInPlace(file: File) = withContext(Dispatchers.IO) {
-        val bitmap = decodeUpright(file, MAX_PHOTO_DIMENSION) ?: return@withContext
+        val bitmap = decodeUpright(file, MAX_PHOTO_DIMENSION) ?: error("Не удалось прочитать фото")
 
         var quality = 90
         var bytes: ByteArray

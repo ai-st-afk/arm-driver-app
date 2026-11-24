@@ -6,7 +6,10 @@ enum class PhotoKind(val code: String) {
     TRUCK_REAR("truck_rear"),
     TRUCK_SIDE("truck_side"),
     DOCUMENT("document"),
-    CARGO("cargo");
+    CARGO("cargo"),
+    VEHICLE_KEYS("vehicle_keys"),
+    VEHICLE_MEDIC("vehicle_medic"),
+    FREE("free");
 
     companion object {
         fun fromCode(code: String): PhotoKind? = entries.firstOrNull { it.code == code }

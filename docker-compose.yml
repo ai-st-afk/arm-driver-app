@@ -1,6 +1,6 @@
 services:
   gateway:
-    image: arm-driver-app-gateway-test3:web-removed-20261120
+    image: arm-driver-app-gateway-test3:photo-20261124
     logging:
       driver: json-file
       options:

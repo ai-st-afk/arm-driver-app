@@ -11,6 +11,9 @@ interface PendingPhotoDao {
     @Insert
     suspend fun insert(photo: PendingPhotoEntity)
 
+    @Insert
+    suspend fun insertAll(photos: List<PendingPhotoEntity>)
+
     @Query("SELECT * FROM pending_photos WHERE uploaded = 0")
     suspend fun getPending(): List<PendingPhotoEntity>
 

@@ -25,5 +25,6 @@ data class PendingPhotoEntity(
     // GUID события этапа (ЗагрузилсяВПуть/Разгрузился), к которому снимок,
     // и что на нём (PhotoKind.code). null — фото из версий до 0.8.0.
     val eventId: String? = null,
-    val kind: String? = null
+    val kind: String? = null,
+    val comment: String? = null
 )

@@ -134,6 +134,60 @@ func TestPhotoKindAndEventForwardedToOneC(t *testing.T) {
 	}
 }
 
+func TestAssignmentPhotosForwardedWithoutTrip(t *testing.T) {
+	for _, kind := range []string{"vehicle_keys", "vehicle_medic", "free"} {
+		t.Run(kind, func(t *testing.T) {
+			var gotKind string
+			var hasTrip, hasEvent bool
+			oneC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotKind = r.Header.Get("X-Photo-Kind")
+				_, hasTrip = r.Header["X-Trip-Id"]
+				_, hasEvent = r.Header["X-Event-Id"]
+				_, _ = w.Write([]byte(`<Результат статус="ok" ид="` + r.Header.Get("X-Photo-Id") + `"/>`))
+			}))
+			defer oneC.Close()
+			api := newTestServer(t, config.Config{MobileToken: "mobile-token", OneCBaseURL: oneC.URL})
+			fields := baseUploadFields()
+			delete(fields, "trip_id")
+			fields["kind"] = kind
+			rec := uploadPhoto(t, api, fields)
+			if rec.Code != http.StatusOK || gotKind != kind || hasTrip || hasEvent {
+				t.Fatalf("status=%d kind=%q trip=%v event=%v body=%s", rec.Code, gotKind, hasTrip, hasEvent, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAssignmentPhotoRequiresKnownKind(t *testing.T) {
+	api := newTestServer(t, config.Config{MobileToken: "mobile-token"})
+	fields := baseUploadFields()
+	delete(fields, "trip_id")
+	fields["kind"] = "cargo"
+	if rec := uploadPhoto(t, api, fields); rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAssignmentPhotoForwardsTimeAndSideAndReportsMissingAssignment(t *testing.T) {
+	var gotTime, gotComment string
+	oneC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTime = r.Header.Get("X-Taken-At")
+		gotComment = r.Header.Get("X-Comment")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer oneC.Close()
+	api := newTestServer(t, config.Config{MobileToken: "mobile-token", OneCBaseURL: oneC.URL})
+	fields := baseUploadFields()
+	delete(fields, "trip_id")
+	fields["kind"] = "vehicle_keys"
+	fields["taken_at"] = "2026-11-24T10:00:00+04:00"
+	fields["comment"] = "Спереди"
+	rec := uploadPhoto(t, api, fields)
+	if rec.Code != http.StatusNotFound || gotTime != fields["taken_at"] || gotComment != fields["comment"] {
+		t.Fatalf("status=%d time=%q comment=%q body=%s", rec.Code, gotTime, gotComment, rec.Body.String())
+	}
+}
+
 // Старые версии приложения не шлют вид и событие — фото уходит как раньше,
 // без пустых заголовков.
 func TestPhotoWithoutKindHasNoExtraHeaders(t *testing.T) {

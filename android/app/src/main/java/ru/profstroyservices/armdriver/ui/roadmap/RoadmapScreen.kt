@@ -76,10 +76,9 @@ import ru.profstroyservices.armdriver.data.repository.CapturedPhoto
 import ru.profstroyservices.armdriver.data.repository.PhotoKind
 import ru.profstroyservices.armdriver.ui.camera.CapturePhotos
 import ru.profstroyservices.armdriver.ui.camera.PhotoCaptureRequest
-import ru.profstroyservices.armdriver.ui.camera.PhotoStep
-import ru.profstroyservices.armdriver.ui.camera.nextMissingStep
-import ru.profstroyservices.armdriver.ui.camera.photoStepsFor
 import ru.profstroyservices.armdriver.ui.camera.rememberCameraAccess
+import ru.profstroyservices.armdriver.ui.photo.AssignmentPhotoControls
+import ru.profstroyservices.armdriver.ui.photo.AssignmentPhotoViewModel
 import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.LabeledField
 import ru.profstroyservices.armdriver.ui.components.CargoDetails
@@ -116,9 +115,11 @@ private val actionLabels = mapOf(
 @Composable
 fun RoadmapScreen(
     onOpenAssignment: (String) -> Unit,
-    viewModel: RoadmapViewModel = hiltViewModel()
+    viewModel: RoadmapViewModel = hiltViewModel(),
+    photoViewModel: AssignmentPhotoViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val completedPhotos by photoViewModel.completed.collectAsState()
     var expandedTripId by remember { mutableStateOf<String?>(null) }
     var failureDraft by rememberSaveable(stateSaver = FailureDraftSaver) { mutableStateOf<FailureDraft?>(null) }
     var unloadCommentTripId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -130,13 +131,10 @@ fun RoadmapScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
 
-    // Съёмка этапа идёт в отдельном окне камеры; пока оно открыто, этот
-    // экран может пересоздаться — поэтому состояние сохраняемое.
+    // Съёмка отказа идёт в отдельном окне камеры; состояние переживает
+    // пересоздание экрана.
     var session by rememberSaveable(stateSaver = PhotoSessionSaver) { mutableStateOf<PhotoSession?>(null) }
-    var choosePhotos by rememberSaveable { mutableStateOf(false) }
-    var askMissing by rememberSaveable { mutableStateOf(false) }
-    // Пока водитель выбирает фото или снимает этап,
-    // обновление не ставим — оно закрыло бы приложение вместе со снимками.
+    // Обновление приложения не должно закрывать камеру со снимками отказа.
     val photoInProgress = session != null || failureDraft != null || unloadCommentTripId != null
     DisposableEffect(photoInProgress) {
         val release = if (photoInProgress) viewModel.holdUpdates() else null
@@ -154,23 +152,19 @@ fun RoadmapScreen(
             session = null
             if (failureDraft?.tripId == current.tripId) failureDraft = failureDraft?.copy(photos = merged)
             else merged.forEach { File(it.path).delete() }
-        } else if (result.completed || nextMissingStep(current.steps, merged) == null) {
-            session = null
-            viewModel.onStepPhotos(current.tripId, current.eventType, merged, comment = current.comment)
         } else {
-            session = current.copy(photos = merged)
-            askMissing = true
+            session = null
+            merged.forEach { File(it.path).delete() }
         }
     }
     val requestCamera = rememberCameraAccess(onDenied = {
         cameraDenied = true
-        if (session?.eventType == EventTypes.SRYV) session = null else askMissing = true
+        session = null
     })
-    fun launchCamera(target: PhotoSession) {
-        val start = nextMissingStep(target.steps, target.photos) ?: 0
+    fun launchCamera() {
         requestCamera {
             cameraDenied = false
-            photoLauncher.launch(PhotoCaptureRequest(target.eventType, start))
+            photoLauncher.launch(PhotoCaptureRequest(EventTypes.SRYV, 0))
         }
     }
 
@@ -221,16 +215,14 @@ fun RoadmapScreen(
 
                 is RoadmapUiState.Content -> RoadmapList(
                     state = state.state,
+                    keysPhotoDone = PhotoKind.VEHICLE_KEYS in completedPhotos,
+                    photoViewModel = photoViewModel,
                     expandedTripId = expandedTripId,
                     onToggle = { tripId -> expandedTripId = if (expandedTripId == tripId) null else tripId },
                     onAction = { trip, type ->
                         if (type == EventTypes.RAZGRUZILSYA) {
                             unloadCommentTripId = trip.id
                             unloadComment = ""
-                        } else if (photoStepsFor(type) != null) {
-                            val started = PhotoSession(trip.id, type, emptyList())
-                            session = started
-                            choosePhotos = true
                         } else {
                             viewModel.onTripAction(trip, type)
                         }
@@ -287,9 +279,8 @@ fun RoadmapScreen(
                 failureDraft = null
             },
             onCapture = {
-                val started = PhotoSession(draft.tripId, EventTypes.SRYV, draft.photos)
-                session = started
-                launchCamera(started)
+                session = PhotoSession(draft.tripId, EventTypes.SRYV, draft.photos)
+                launchCamera()
             },
             onConfirm = {
                 failureDraft = null
@@ -315,61 +306,17 @@ fun RoadmapScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    val started = PhotoSession(tripId, EventTypes.RAZGRUZILSYA, emptyList(), unloadComment.trim())
+                    viewModel.onTripAction(tripId, EventTypes.RAZGRUZILSYA, unloadComment.trim())
                     unloadCommentTripId = null
-                    session = started
-                    choosePhotos = true
                 }) { Text("Продолжить") }
             },
             dismissButton = { TextButton(onClick = { unloadCommentTripId = null }) { Text("Отмена") } }
         )
     }
 
-    val pending = session
-    if (choosePhotos && pending != null) {
-        AlertDialog(
-            onDismissRequest = { choosePhotos = false; session = null },
-            title = { Text("Фото рейса") },
-            text = { Text("Фото можно приложить по желанию. Этап отметится и без них.") },
-            confirmButton = {
-                Button(onClick = {
-                    choosePhotos = false
-                    session = null
-                    viewModel.onStepPhotos(pending.tripId, pending.eventType, emptyList(), comment = pending.comment)
-                }) { Text("Отметить без фото") }
-            },
-            dismissButton = {
-                TextButton(onClick = { choosePhotos = false; launchCamera(pending) }) { Text("Сделать фото") }
-            }
-        )
-    }
-    if (askMissing && pending != null) {
-        MissingPhotosDialog(
-            missing = pending.steps.filter { step -> pending.photos.none { it.kind == step.kind } },
-            cameraDenied = cameraDenied,
-            onContinue = {
-                askMissing = false
-                launchCamera(pending)
-            },
-            onMarkWithout = { reason ->
-                askMissing = false
-                session = null
-                viewModel.onStepPhotos(pending.tripId, pending.eventType, pending.photos, reason, pending.comment)
-            },
-            onAbort = {
-                askMissing = false
-                session = null
-                pending.photos.forEach { File(it.path).delete() }
-            }
-        )
-    }
 }
 
-// Этап, к которому водитель решил приложить фото: рейс, тип события и
-// уже принятые снимки (вместе с теми, что сняты до выхода из камеры).
-private data class PhotoSession(val tripId: String, val eventType: String, val photos: List<CapturedPhoto>, val comment: String = "") {
-    val steps: List<PhotoStep> get() = photoStepsFor(eventType).orEmpty()
-}
+private data class PhotoSession(val tripId: String, val eventType: String, val photos: List<CapturedPhoto>, val comment: String = "")
 
 private data class FailureDraft(
     val tripId: String,
@@ -412,16 +359,11 @@ private val PhotoSessionSaver = Saver<PhotoSession?, ArrayList<String>>(
     }
 )
 
-private fun PhotoKind.label(): String = when (this) {
-    PhotoKind.TRUCK_REAR -> "грузовик сзади"
-    PhotoKind.TRUCK_SIDE -> "грузовик сбоку"
-    PhotoKind.DOCUMENT -> "документ"
-    PhotoKind.CARGO -> "груз"
-}
-
 @Composable
 private fun RoadmapList(
     state: AssignmentState,
+    keysPhotoDone: Boolean,
+    photoViewModel: AssignmentPhotoViewModel,
     expandedTripId: String?,
     onToggle: (String) -> Unit,
     onAction: (TripDto, String) -> Unit,
@@ -472,6 +414,18 @@ private fun RoadmapList(
                 Text(text = text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             }
         }
+        if (state.assignment.keysIssued && !state.assignment.shiftClosed && !keysPhotoDone &&
+            state.phase != AssignmentPhase.REPLACED && !state.cancelledByDispatcher) {
+            item(key = "vehicle_keys_photo") {
+                AssignmentPhotoControls(PhotoKind.VEHICLE_KEYS, showFree = false, viewModel = photoViewModel)
+            }
+        }
+        if (state.allTripsResolved && keysPhotoDone && !state.assignment.shiftClosed &&
+            state.phase == AssignmentPhase.IN_SHIFT) {
+            item(key = "vehicle_medic_photo") {
+                AssignmentPhotoControls(PhotoKind.VEHICLE_MEDIC, showFree = false, viewModel = photoViewModel)
+            }
+        }
         items(state.trips, key = { it.trip.id }) { progress ->
             val selectedReturned = progress.returnedAfterFailure && progress.trip.id == expandedTripId
             TripRow(
@@ -481,6 +435,7 @@ private fun RoadmapList(
                         state.trips.none { it.returnedAfterFailure && it.trip.id == expandedTripId && !it.isResolved }),
                 unloadChanged = progress.trip.id in state.changedUnloadTripIds,
                 lockedHint = lockedHint,
+                stageLockedHint = if (!keysPhotoDone) "Сначала сфотографируйте машину с четырёх сторон после выдачи ключей." else null,
                 expanded = progress.trip.id == expandedTripId,
                 onToggle = { onToggle(progress.trip.id) },
                 onAction = { type -> onAction(progress.trip, type) },
@@ -488,61 +443,15 @@ private fun RoadmapList(
                 onFailure = { onFailure(progress.trip.id) }
             )
         }
-        if (state.phase != AssignmentPhase.FINISHED && state.phase != AssignmentPhase.REPLACED) {
+        if (!state.assignment.shiftClosed && state.phase != AssignmentPhase.REPLACED) {
             item(key = "dispatcher") {
-                CallDispatcherButton(text = "Проблема с рейсом — позвонить диспетчеру")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CallDispatcherButton(text = "Проблема с рейсом — позвонить диспетчеру")
+                    AssignmentPhotoControls(requiredKind = null, viewModel = photoViewModel)
+                }
             }
         }
     }
-}
-
-// Водитель вышел из камеры до окончания съёмки. Сохранённые кадры остаются
-// привязанными к этапу, если он отметит его без остальных фото.
-@Composable
-private fun MissingPhotosDialog(
-    missing: List<PhotoStep>,
-    cameraDenied: Boolean,
-    onContinue: () -> Unit,
-    onMarkWithout: (String?) -> Unit,
-    onAbort: () -> Unit
-) {
-    var reason by rememberSaveable { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text("Не все фото сделаны") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (cameraDenied) {
-                    Text(
-                        text = "Нет доступа к камере. Разрешите её в настройках телефона.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-                Text(
-                    text = "Осталось снять: ${missing.joinToString(", ") { it.kind.label() }}.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text("Этап можно отметить без остальных фото.")
-                OutlinedTextField(
-                    value = reason,
-                    onValueChange = { reason = it },
-                    label = { Text("Комментарий к фото (необязательно)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                TextButton(onClick = onAbort) { Text("Отменить этап") }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onContinue) { Text("Продолжить съёмку") }
-        },
-        dismissButton = {
-            TextButton(onClick = { onMarkWithout(reason.trim().ifBlank { null }) }) {
-                Text("Отметить без остальных фото")
-            }
-        }
-    )
 }
 
 @Composable
@@ -614,6 +523,7 @@ private fun TripRow(
     // Не null — отмечать этапы сейчас нельзя (смена не начата, закончена
     // или разнарядка отменена).
     lockedHint: String?,
+    stageLockedHint: String?,
     expanded: Boolean,
     onToggle: () -> Unit,
     onAction: (String) -> Unit,
@@ -665,6 +575,7 @@ private fun TripRow(
                     state = state,
                     isActive = isActive,
                     lockedHint = lockedHint,
+                    stageLockedHint = stageLockedHint,
                     onAction = onAction,
                     onStepBack = onStepBack,
                     onFailure = onFailure
@@ -730,6 +641,7 @@ private fun ExpandedDetails(
     state: TripProgress,
     isActive: Boolean,
     lockedHint: String?,
+    stageLockedHint: String?,
     onAction: (String) -> Unit,
     onStepBack: () -> Unit,
     onFailure: () -> Unit
@@ -790,6 +702,10 @@ private fun ExpandedDetails(
     // первый.
     OutlinedButton(onClick = onFailure, modifier = Modifier.fillMaxWidth().height(SecondaryActionHeight)) {
         Text("Не могу выполнить рейс", style = MaterialTheme.typography.labelLarge)
+    }
+    if (stageLockedHint != null) {
+        Text(stageLockedHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        return
     }
     if (!isActive) {
         Text(

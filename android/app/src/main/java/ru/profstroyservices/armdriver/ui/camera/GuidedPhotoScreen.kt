@@ -68,10 +68,8 @@ private sealed interface Stage {
     data class Review(val image: ImageBitmap) : Stage
 }
 
-// Пошаговая съёмка этапа: подсказка «что снимать» поверх видоискателя,
-// после снимка — превью, чтобы смазанный кадр переснять до отправки.
-// onDone получает снимки этой съёмки; completed = false — водитель вышел
-// раньше, остальное решает экран рейса (доснять или закрыть с причиной).
+// Съёмка при отказе клиента: водитель подтверждает снимок или по своему
+// выбору переснимает его. Автоматической оценки резкости нет.
 @Composable
 fun GuidedPhotoScreen(
     steps: List<PhotoStep>,
@@ -187,8 +185,8 @@ fun GuidedPhotoScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White
             )
-            Text(
-                text = if (stage is Stage.Review) "Если смазано или не видно — переснимите" else step.hint,
+            if (stage !is Stage.Review) Text(
+                text = step.hint,
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White
             )

@@ -21,11 +21,13 @@ import ru.profstroyservices.armdriver.data.update.AppUpdater
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.AssignmentStateRepository
+import ru.profstroyservices.armdriver.data.repository.AssignmentPhotoCompletion
 import ru.profstroyservices.armdriver.data.repository.CapturedPhoto
 import ru.profstroyservices.armdriver.data.repository.DocumentRepository
 import ru.profstroyservices.armdriver.data.repository.EventQueueRepository
 import ru.profstroyservices.armdriver.data.repository.EventTypes
 import ru.profstroyservices.armdriver.data.repository.QueueRepository
+import ru.profstroyservices.armdriver.data.repository.PhotoKind
 import ru.profstroyservices.armdriver.data.settings.DriverSettingsRepository
 import java.io.File
 import java.time.OffsetDateTime
@@ -67,6 +69,7 @@ class RoadmapViewModel @Inject constructor(
     private val states: AssignmentStateRepository,
     private val eventQueue: EventQueueRepository,
     private val documents: DocumentRepository,
+    private val photoCompletion: AssignmentPhotoCompletion,
     private val queue: QueueRepository,
     private val settings: DriverSettingsRepository,
     private val updater: AppUpdater
@@ -124,14 +127,22 @@ class RoadmapViewModel @Inject constructor(
     }
 
     fun onTripAction(trip: TripDto, type: String) {
+        onTripAction(trip.id, type)
+    }
+
+    fun onTripAction(tripId: String, type: String, comment: String = "") {
         if (type == EventTypes.PRIBYL_NA_POGRUZKU && updater.blocksNewTrip()) {
             emitFeedback("Сначала установите обязательное обновление приложения", null)
             return
         }
         val state = markableState() ?: return
-        if (!state.canMarkTripStep(trip.id, type)) return
+        if (!state.canMarkTripStep(tripId, type)) return
         viewModelScope.launch {
-            val eventId = enqueue(state, type, trip.id) ?: return@launch
+            if (!photoCompletion.isDone(state.id, PhotoKind.VEHICLE_KEYS)) {
+                emitFeedback("Сначала сфотографируйте машину с четырёх сторон после выдачи ключей", null)
+                return@launch
+            }
+            val eventId = enqueue(state, type, tripId, comment.take(500)) ?: return@launch
             emitFeedback(actionFeedbackText(type), eventId)
             scheduleFlush()
         }
@@ -157,8 +168,16 @@ class RoadmapViewModel @Inject constructor(
                 photos.forEach { File(it.path).delete() }
                 return@launch
             }
-            photos.forEach { photo ->
-                documents.enqueue(File(photo.path), driverId, state.id, tripId, eventId, photo.kind)
+            try {
+                if (photos.isNotEmpty()) {
+                    documents.enqueueTripPhotos(photos.map { File(it.path) }, driverId, state.id, tripId, eventId, PhotoKind.CARGO)
+                }
+            } catch (error: Exception) {
+                eventQueue.cancelPending(eventId)
+                documents.discardForEvent(eventId)
+                photos.forEach { File(it.path).delete() }
+                emitFeedback("Фото не сохранилось, повторите отказ", null)
+                return@launch
             }
             emitFeedback("Не могу выполнить рейс", null)
             flushJob?.cancel()
@@ -196,45 +215,6 @@ class RoadmapViewModel @Inject constructor(
                 null
             )
             scheduleFlush()
-        }
-    }
-
-    // Сначала событие — его GUID, время и геометка фиксируются сейчас
-    // (инвариант 1), потом добровольные снимки с привязкой к нему.
-    // Быстрой отмены в снекбаре нет: откатить можно кнопкой «Отмена» в
-    // карточке, вместе с фото (см. onStepBack).
-    fun onStepPhotos(tripId: String, type: String, photos: List<CapturedPhoto>, missingReason: String? = null, comment: String = "") {
-        val state = markableState()
-        if (state == null || !state.canMarkTripStep(tripId, type)) {
-            photos.forEach { File(it.path).delete() }
-            return
-        }
-        viewModelScope.launch {
-            val driverId = settings.driverId.first() ?: return@launch
-            val eventComment = when {
-                missingReason == null -> comment
-                photos.isEmpty() -> listOf(comment, "Без фото: $missingReason").filter { it.isNotBlank() }.joinToString("; ")
-                else -> listOf(comment, "Не все фото: $missingReason").filter { it.isNotBlank() }.joinToString("; ")
-            }
-            val eventId = enqueue(state, type, tripId, eventComment.take(500))
-            if (eventId == null) {
-                // Шаг уже был отмечен — повторно снимки не нужны.
-                photos.forEach { File(it.path).delete() }
-                return@launch
-            }
-            photos.forEach {
-                documents.enqueue(
-                    file = File(it.path),
-                    driverId = driverId,
-                    assignmentId = state.id,
-                    tripId = tripId,
-                    eventId = eventId,
-                    kind = it.kind
-                )
-            }
-            emitFeedback(actionFeedbackText(type) + if (missingReason != null) ", не все фото" else "", null)
-            flushJob?.cancel()
-            queue.flush()
         }
     }
 

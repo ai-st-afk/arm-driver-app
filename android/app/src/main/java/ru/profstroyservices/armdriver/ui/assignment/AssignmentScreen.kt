@@ -44,6 +44,9 @@ import ru.profstroyservices.armdriver.R
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.DRIVER_TIME_ZONE
+import ru.profstroyservices.armdriver.data.repository.PhotoKind
+import ru.profstroyservices.armdriver.ui.photo.AssignmentPhotoControls
+import ru.profstroyservices.armdriver.ui.photo.AssignmentPhotoViewModel
 import ru.profstroyservices.armdriver.ui.components.CallDispatcherButton
 import ru.profstroyservices.armdriver.ui.components.CargoDetails
 import ru.profstroyservices.armdriver.ui.components.LabeledField
@@ -70,9 +73,11 @@ fun AssignmentScreen(
     // Задан только когда экран открыт из списка разнарядок (их несколько) —
     // тогда есть куда возвращаться.
     onBack: (() -> Unit)? = null,
-    viewModel: AssignmentViewModel = hiltViewModel()
+    viewModel: AssignmentViewModel = hiltViewModel(),
+    photoViewModel: AssignmentPhotoViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val completedPhotos by photoViewModel.completed.collectAsState()
     val today by produceState(initialValue = LocalDate.now(DRIVER_TIME_ZONE)) {
         while (true) {
             val now = ZonedDateTime.now(DRIVER_TIME_ZONE)
@@ -128,7 +133,9 @@ fun AssignmentScreen(
                     content = state,
                     today = today,
                     onAcknowledge = viewModel::onAcknowledge,
-                    onStartShift = viewModel::onStartShift
+                    onStartShift = viewModel::onStartShift,
+                    keysPhotoDone = PhotoKind.VEHICLE_KEYS in completedPhotos,
+                    photoViewModel = photoViewModel
                 )
             }
         }
@@ -184,7 +191,9 @@ private fun AssignmentContent(
     content: AssignmentUiState.Content,
     today: LocalDate,
     onAcknowledge: () -> Unit,
-    onStartShift: () -> Unit
+    onStartShift: () -> Unit,
+    keysPhotoDone: Boolean,
+    photoViewModel: AssignmentPhotoViewModel
 ) {
     val state = content.state
     val assignment = state.assignment
@@ -286,10 +295,13 @@ private fun AssignmentContent(
                     style = MaterialTheme.typography.labelLarge
                 )
             }
+            if (assignment.keysIssued) {
+                AssignmentPhotoControls(PhotoKind.VEHICLE_KEYS, showFree = false, viewModel = photoViewModel)
+            }
             Button(
                 onClick = onStartShift,
                 enabled = state.canStartShiftOn(today) && content.otherOpenShiftLabel == null &&
-                    !content.continuesSameDriverShift,
+                    !content.continuesSameDriverShift && keysPhotoDone,
                 modifier = Modifier.fillMaxWidth().height(ButtonHeight),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
@@ -325,10 +337,12 @@ private fun AssignmentContent(
                     color = MaterialTheme.colorScheme.error
                 )
             }
-            CallDispatcherButton()
         }
 
         AssignmentPhase.IN_SHIFT -> {
+            if (assignment.keysIssued && !keysPhotoDone && !state.cancelledByDispatcher) {
+                AssignmentPhotoControls(PhotoKind.VEHICLE_KEYS, showFree = false, viewModel = photoViewModel)
+            }
             if (content.continuesSameDriverShift && assignment.shiftStarted && !assignment.keysIssued) {
                 Notice("Разнарядка продолжает начатую смену. Дождитесь выдачи ключей от новой машины механиком.")
             }
@@ -366,7 +380,9 @@ private fun AssignmentContent(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold
             )
-            CallDispatcherButton()
+            if (state.allTripsResolved && !assignment.shiftClosed && keysPhotoDone) {
+                AssignmentPhotoControls(PhotoKind.VEHICLE_MEDIC, showFree = false, viewModel = photoViewModel)
+            }
         }
 
         AssignmentPhase.FINISHED -> Text(
@@ -378,6 +394,10 @@ private fun AssignmentContent(
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold
         )
+    }
+    if (state.phase != AssignmentPhase.REPLACED && !assignment.shiftClosed) {
+        CallDispatcherButton()
+        AssignmentPhotoControls(requiredKind = null, viewModel = photoViewModel)
     }
 }
 

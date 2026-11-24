@@ -27,6 +27,7 @@ import (
 
 const maxXMLBody = 4 << 20
 const maxDocumentBody = 12 << 20
+const maxPhotoBytes = 5 << 20
 
 // Значение <Статус> из контракта 1С. Пустой список ездок отменой не
 // считается — только явный статус (инвариант 4 из AGENTS.md).
@@ -519,12 +520,7 @@ func (s *Server) receiveEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, statusCode, resultXMLToJSON(result))
 }
 
-// uploadDocument принимает фото подписанного документа с разгрузки.
-// В 1С пока не пересылается — контракт события `<Событие>` не рассчитан
-// на вложения, а менять его в одностороннем порядке нельзя (AGENTS.md).
-// Фото лежит в техническом delivery-cache до момента, когда появится
-// согласованный с 1С-командой способ доставки; см. CleanupOldDocuments
-// про срок хранения.
+// uploadDocument принимает фото ездки или разнарядки и пересылает его в 1С.
 func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizedMobile(r) {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "неверный X-Auth-Token")
@@ -533,6 +529,11 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxDocumentBody)
 	if err := r.ParseMultipartForm(maxDocumentBody); err != nil {
+		var limit *http.MaxBytesError
+		if errors.As(err, &limit) {
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "photo_too_large", "фото больше 5 МБ")
+			return
+		}
 		writeJSONError(w, http.StatusBadRequest, "bad_request", "не удалось прочитать multipart-запрос: "+err.Error())
 		return
 	}
@@ -541,8 +542,8 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	driverID := r.FormValue("driver_id")
 	assignmentID := r.FormValue("assignment_id")
 	tripID := r.FormValue("trip_id")
-	if photoID == "" || driverID == "" || tripID == "" {
-		writeJSONError(w, http.StatusBadRequest, "validation_error", "обязательны photo_id, driver_id и trip_id")
+	if photoID == "" || driverID == "" || (assignmentID == "" && tripID == "") {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "обязательны photo_id, driver_id и идентификатор разнарядки или ездки")
 		return
 	}
 	// Необязательные: что на снимке и к какому событию он относится.
@@ -550,12 +551,22 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	// запроса к 1С, поэтому пропускаем только ожидаемый формат.
 	eventID := r.FormValue("event_id")
 	kind := r.FormValue("kind")
+	comment := r.FormValue("comment")
+	takenAt := r.FormValue("taken_at")
 	if eventID != "" && !guidPattern.MatchString(eventID) {
 		writeJSONError(w, http.StatusBadRequest, "validation_error", "event_id должен быть GUID")
 		return
 	}
 	if kind != "" && !photoKindPattern.MatchString(kind) {
 		writeJSONError(w, http.StatusBadRequest, "validation_error", "kind: только латиница в нижнем регистре и _")
+		return
+	}
+	if tripID == "" && kind != "vehicle_keys" && kind != "vehicle_medic" && kind != "free" {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "для фото без ездки нужен kind: vehicle_keys, vehicle_medic или free")
+		return
+	}
+	if len(comment) > 500 || strings.ContainsAny(comment, "\r\n") || len(takenAt) > 64 || strings.ContainsAny(takenAt, "\r\n") {
+		writeJSONError(w, http.StatusBadRequest, "validation_error", "некорректные comment или taken_at")
 		return
 	}
 
@@ -566,7 +577,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	data, err := io.ReadAll(io.LimitReader(file, maxDocumentBody))
+	data, err := io.ReadAll(io.LimitReader(file, maxPhotoBytes+1))
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "bad_request", "не удалось прочитать файл")
 		return
@@ -574,6 +585,10 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 
 	if len(data) == 0 {
 		writeJSONError(w, http.StatusBadRequest, "validation_error", "пустой файл photo")
+		return
+	}
+	if len(data) > maxPhotoBytes {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "photo_too_large", "фото больше 5 МБ")
 		return
 	}
 
@@ -604,9 +619,17 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.forwardPhotoToOneC(r.Context(), photoID, assignmentID, tripID, eventID, kind, contentType, data)
+	result, err := s.forwardPhotoToOneC(r.Context(), photoID, assignmentID, tripID, eventID, kind, takenAt, comment, contentType, data)
 	if err != nil {
 		s.logger.ErrorContext(r.Context(), "1c photo forwarding failed", "error", err, "id", photoID)
+		var upstream *photoHTTPError
+		if errors.As(err, &upstream) {
+			switch upstream.status {
+			case http.StatusBadRequest, http.StatusNotFound, http.StatusRequestEntityTooLarge:
+				writeJSONError(w, upstream.status, "one_c_photo_rejected", "1С не приняла фото: "+http.StatusText(upstream.status))
+				return
+			}
+		}
 		writeJSONError(w, http.StatusBadGateway, "one_c_unavailable", "не удалось отправить фото в 1С")
 		return
 	}
@@ -627,12 +650,18 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "id": photoID})
 }
 
+type photoHTTPError struct{ status int }
+
+func (e *photoHTTPError) Error() string {
+	return fmt.Sprintf("1С ответила HTTP %d на фото", e.status)
+}
+
 // forwardPhotoToOneC пересылает фото в 1С по отдельному контракту
 // (не через XML событий): бинарное тело как есть, метаданные в
 // заголовках, идемпотентность по X-Photo-Id. См. docs/backend-api.md.
 func (s *Server) forwardPhotoToOneC(
 	ctx context.Context,
-	photoID, assignmentID, tripID, eventID, kind, contentType string,
+	photoID, assignmentID, tripID, eventID, kind, takenAt, comment, contentType string,
 	data []byte,
 ) (photoResultXML, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.OneCPhotoURL, bytes.NewReader(data))
@@ -642,7 +671,9 @@ func (s *Server) forwardPhotoToOneC(
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("X-Photo-Id", photoID)
 	req.Header.Set("X-Assignment-Id", assignmentID)
-	req.Header.Set("X-Trip-Id", tripID)
+	if tripID != "" {
+		req.Header.Set("X-Trip-Id", tripID)
+	}
 	// Согласовано с 1С 2026-10-28 (architecture.md §14 п.8): этап 1С берёт
 	// по типу события X-Event-Id, в том числе если событие придёт позже
 	// фото. Фото без этих заголовков (старые версии приложения) 1С
@@ -652,6 +683,12 @@ func (s *Server) forwardPhotoToOneC(
 	}
 	if kind != "" {
 		req.Header.Set("X-Photo-Kind", kind)
+	}
+	if takenAt != "" {
+		req.Header.Set("X-Taken-At", takenAt)
+	}
+	if comment != "" {
+		req.Header.Set("X-Comment", comment)
 	}
 	if s.cfg.OneCToken != "" {
 		req.Header.Set("X-Auth-Token", s.cfg.OneCToken)
@@ -665,6 +702,9 @@ func (s *Server) forwardPhotoToOneC(
 		return photoResultXML{}, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return photoResultXML{}, &photoHTTPError{status: resp.StatusCode}
+	}
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxXMLBody))
 	if err != nil {

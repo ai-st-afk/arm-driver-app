@@ -12,23 +12,15 @@ data class PhotoStep(
     val allowMore: Boolean = false
 )
 
-private val TruckRear = PhotoStep(PhotoKind.TRUCK_REAR, "Сфотографируйте грузовик сзади", "Кузов и госномер целиком в кадре")
-// Подсказки «сбоку» разные: после разгрузки груза в кузове уже нет.
-private val TruckSideLoaded = PhotoStep(PhotoKind.TRUCK_SIDE, "Сфотографируйте грузовик сбоку", "Машина целиком, вместе с грузом")
-private val TruckSideUnloaded = PhotoStep(PhotoKind.TRUCK_SIDE, "Сфотографируйте грузовик сбоку", "Машина целиком в кадре")
-private val Document = PhotoStep(
-    PhotoKind.DOCUMENT,
-    "Сфотографируйте документ",
-    "Весь лист в кадре, подпись и печать должны читаться",
-    allowMore = true
-)
 private val Cargo = PhotoStep(PhotoKind.CARGO, "Сфотографируйте груз", "Покажите причину отказа клиента", allowMore = true)
+private val VehicleSides = listOf("спереди", "сзади", "слева", "справа")
 
-// Обязательные снимки этапа (решение автора 2026-10-27). null — этап без фото.
+// Фото остаётся частью срыва «Претензия к качеству», но не этапов ездки.
 fun photoStepsFor(eventType: String): List<PhotoStep>? = when (eventType) {
-    EventTypes.ZAGRUZILSYA_V_PUT -> listOf(TruckRear, TruckSideLoaded)
-    EventTypes.RAZGRUZILSYA -> listOf(TruckRear, TruckSideUnloaded, Document)
     EventTypes.SRYV -> listOf(Cargo)
+    PhotoKind.VEHICLE_KEYS.code -> VehicleSides.map { PhotoStep(PhotoKind.VEHICLE_KEYS, "Машина $it", "После выдачи ключей. В кадре должна быть вся сторона машины") }
+    PhotoKind.VEHICLE_MEDIC.code -> VehicleSides.map { PhotoStep(PhotoKind.VEHICLE_MEDIC, "Машина $it", "Перед осмотром у медика. В кадре должна быть вся сторона машины") }
+    PhotoKind.FREE.code -> listOf(PhotoStep(PhotoKind.FREE, "Отправить фото диспетчеру", "Сфотографируйте нужную деталь"))
     else -> null
 }
 

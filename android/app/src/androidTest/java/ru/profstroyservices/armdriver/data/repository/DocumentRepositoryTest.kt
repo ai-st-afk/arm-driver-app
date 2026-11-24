@@ -92,6 +92,23 @@ class DocumentRepositoryTest {
         assertTrue(db.pendingPhotoDao().getAllFilePaths().isEmpty())
     }
 
+    @Test
+    fun fourAssignmentPhotosUploadWithoutTripAndKeepSideComments() = runBlocking {
+        val files = List(4) { capturedPhoto() }
+        val sides = listOf("Спереди", "Сзади", "Слева", "Справа")
+        repository.enqueueAssignmentPhotos(files.zip(sides), "d", "a", PhotoKind.VEHICLE_KEYS)
+
+        repository.uploadPending()
+
+        assertEquals(4, api.uploads)
+        assertEquals(listOf(null, null, null, null), api.tripIds)
+        assertEquals(sides, api.comments)
+        assertEquals(listOf("vehicle_keys", "vehicle_keys", "vehicle_keys", "vehicle_keys"), api.kinds)
+        assertTrue(api.takenAts.all { !it.isNullOrBlank() })
+        assertTrue(files.all { !it.exists() })
+        assertTrue(db.pendingPhotoDao().getPending().isEmpty())
+    }
+
     // Не доставлено — файл обязан остаться, иначе отправлять будет нечего.
     @Test
     fun failedPhotoKeepsFileEvenWhenOld() = runBlocking {
@@ -125,6 +142,10 @@ class DocumentRepositoryTest {
         var uploads = 0
         var lastEventId: String? = null
         var lastKind: String? = null
+        val tripIds = mutableListOf<String?>()
+        val comments = mutableListOf<String?>()
+        val kinds = mutableListOf<String?>()
+        val takenAts = mutableListOf<String?>()
 
         private fun RequestBody.text() = Buffer().also { writeTo(it) }.readUtf8()
 
@@ -132,7 +153,9 @@ class DocumentRepositoryTest {
             photoId: RequestBody,
             driverId: RequestBody,
             assignmentId: RequestBody,
-            tripId: RequestBody,
+            tripId: RequestBody?,
+            comment: RequestBody?,
+            takenAt: RequestBody?,
             eventId: RequestBody?,
             kind: RequestBody?,
             photo: MultipartBody.Part
@@ -141,6 +164,10 @@ class DocumentRepositoryTest {
             uploads++
             lastEventId = eventId?.text()
             lastKind = kind?.text()
+            tripIds += tripId?.text()
+            comments += comment?.text()
+            kinds += kind?.text()
+            takenAts += takenAt?.text()
             return DocumentUploadResponse(status = "ok")
         }
 

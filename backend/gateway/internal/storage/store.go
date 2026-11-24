@@ -311,8 +311,8 @@ func (s *Store) SaveDocument(id, tripID, driverID, assignmentID, ext string, dat
 	if id == "" {
 		return DocumentMeta{}, errors.New("пустой идентификатор фото")
 	}
-	if tripID == "" {
-		return DocumentMeta{}, errors.New("пустой идентификатор ездки")
+	if tripID == "" && assignmentID == "" {
+		return DocumentMeta{}, errors.New("пустой идентификатор ездки и разнарядки")
 	}
 	if driverID == "" {
 		return DocumentMeta{}, errors.New("пустой водитель")

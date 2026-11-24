@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.profstroyservices.armdriver.data.repository.AssignmentPhase
+import ru.profstroyservices.armdriver.data.repository.AssignmentPhotoCompletion
+import ru.profstroyservices.armdriver.data.repository.PhotoKind
 import ru.profstroyservices.armdriver.data.repository.AssignmentState
 import ru.profstroyservices.armdriver.data.repository.AssignmentStateRepository
 import ru.profstroyservices.armdriver.data.repository.EventQueueRepository
@@ -44,6 +46,7 @@ class AssignmentViewModel @Inject constructor(
     private val eventQueue: EventQueueRepository,
     private val queue: QueueRepository,
     private val settings: DriverSettingsRepository,
+    private val photoCompletion: AssignmentPhotoCompletion,
     private val updater: AppUpdater
 ) : ViewModel() {
 
@@ -95,6 +98,7 @@ class AssignmentViewModel @Inject constructor(
         viewModelScope.launch {
             val driverId = settings.driverId.first() ?: return@launch
             if (type == EventTypes.NACHALO_SMENY && !content.state.canStartShiftOn(LocalDate.now(DRIVER_TIME_ZONE))) return@launch
+            if (type == EventTypes.NACHALO_SMENY && !photoCompletion.isDone(content.state.id, PhotoKind.VEHICLE_KEYS)) return@launch
             eventQueue.enqueue(
                 type = type,
                 driverId = driverId,

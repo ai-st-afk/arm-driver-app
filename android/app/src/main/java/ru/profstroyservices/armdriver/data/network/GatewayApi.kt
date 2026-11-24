@@ -30,7 +30,9 @@ interface GatewayApi {
         @Part("photo_id") photoId: RequestBody,
         @Part("driver_id") driverId: RequestBody,
         @Part("assignment_id") assignmentId: RequestBody,
-        @Part("trip_id") tripId: RequestBody,
+        @Part("trip_id") tripId: RequestBody?,
+        @Part("comment") comment: RequestBody?,
+        @Part("taken_at") takenAt: RequestBody?,
         // null — часть не отправляется (фото из версий до 0.8.0).
         @Part("event_id") eventId: RequestBody?,
         @Part("kind") kind: RequestBody?,

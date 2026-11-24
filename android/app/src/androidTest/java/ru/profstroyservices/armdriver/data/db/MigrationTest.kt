@@ -51,13 +51,13 @@ class MigrationTest {
     }
 
     @Test
-    fun pendingEventAndPhotoSurviveUpgradeTo11() = runBlocking {
+    fun pendingEventAndPhotoSurviveUpgradeTo12() = runBlocking {
         createVersion8()
 
         // Room сверяет схему после миграции с сущностями — ошибка в миграции
         // здесь упадёт так же, как упала бы у водителя при обновлении.
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+            .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
             .build()
         val photos = db.pendingPhotoDao().getPending()
         val events = db.pendingEventDao().getUnsent()
@@ -66,6 +66,7 @@ class MigrationTest {
         assertEquals(listOf("p1"), photos.map { it.id })
         assertNull(photos.single().eventId)
         assertNull(photos.single().kind)
+        assertNull(photos.single().comment)
         assertEquals(listOf("e1"), events.map { it.id })
         assertNull(events.single().reasonCode)
     }

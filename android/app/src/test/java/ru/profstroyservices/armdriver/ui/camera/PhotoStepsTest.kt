@@ -2,7 +2,6 @@ package ru.profstroyservices.armdriver.ui.camera
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.profstroyservices.armdriver.data.repository.CapturedPhoto
 import ru.profstroyservices.armdriver.data.repository.EventTypes
@@ -17,32 +16,9 @@ class PhotoStepsTest {
     }
 
     @Test
-    fun `loading requires truck rear and side`() {
-        assertEquals(
-            listOf(PhotoKind.TRUCK_REAR, PhotoKind.TRUCK_SIDE),
-            photoStepsFor(EventTypes.ZAGRUZILSYA_V_PUT)?.map { it.kind }
-        )
-    }
-
-    @Test
-    fun `unloading requires truck rear, side and document`() {
-        assertEquals(
-            listOf(PhotoKind.TRUCK_REAR, PhotoKind.TRUCK_SIDE, PhotoKind.DOCUMENT),
-            photoStepsFor(EventTypes.RAZGRUZILSYA)?.map { it.kind }
-        )
-    }
-
-    // После разгрузки груза в кузове нет — подсказка не должна просить
-    // снять его «вместе с грузом».
-    @Test
-    fun `unloading hints do not ask for cargo`() {
-        val hints = checkNotNull(photoStepsFor(EventTypes.RAZGRUZILSYA)).map { it.hint.lowercase() }
-        assertTrue(hints.none { "груз" in it.replace("грузовик", "") })
-    }
-
-    @Test
-    fun `only the document allows extra sheets`() {
-        assertEquals(listOf(false, false, true), photoStepsFor(EventTypes.RAZGRUZILSYA)?.map { it.allowMore })
+    fun `loading and unloading do not open camera`() {
+        assertNull(photoStepsFor(EventTypes.ZAGRUZILSYA_V_PUT))
+        assertNull(photoStepsFor(EventTypes.RAZGRUZILSYA))
     }
 
     @Test
@@ -52,18 +28,21 @@ class PhotoStepsTest {
     }
 
     @Test
-    fun `next missing step skips what is already taken`() {
-        val steps = checkNotNull(photoStepsFor(EventTypes.RAZGRUZILSYA))
-        assertEquals(0, nextMissingStep(steps, emptyList()))
-        assertEquals(2, nextMissingStep(steps, listOf(photo(PhotoKind.TRUCK_REAR), photo(PhotoKind.TRUCK_SIDE))))
-        assertEquals(1, nextMissingStep(steps, listOf(photo(PhotoKind.TRUCK_REAR), photo(PhotoKind.DOCUMENT))))
+    fun `vehicle photos require four sides and free photo one`() {
+        for (kind in listOf(PhotoKind.VEHICLE_KEYS, PhotoKind.VEHICLE_MEDIC)) {
+            val steps = checkNotNull(photoStepsFor(kind.code))
+            assertEquals(4, steps.size)
+            assertEquals(listOf("Машина спереди", "Машина сзади", "Машина слева", "Машина справа"), steps.map { it.prompt })
+            assertEquals(listOf(kind, kind, kind, kind), steps.map { it.kind })
+        }
+        assertEquals(listOf(PhotoKind.FREE), photoStepsFor(PhotoKind.FREE.code)?.map { it.kind })
     }
 
     @Test
-    fun `nothing missing when every kind has a photo`() {
-        val steps = checkNotNull(photoStepsFor(EventTypes.RAZGRUZILSYA))
-        val all = listOf(PhotoKind.TRUCK_REAR, PhotoKind.TRUCK_SIDE, PhotoKind.DOCUMENT, PhotoKind.DOCUMENT).map(::photo)
-        assertNull(nextMissingStep(steps, all))
+    fun `next missing step skips what is already taken`() {
+        val steps = checkNotNull(photoStepsFor(EventTypes.SRYV))
+        assertEquals(0, nextMissingStep(steps, emptyList()))
+        assertNull(nextMissingStep(steps, listOf(photo(PhotoKind.CARGO))))
     }
 
     private fun photo(kind: PhotoKind) = CapturedPhoto(kind, "/tmp/${kind.code}.jpg")
