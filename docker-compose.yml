@@ -32,7 +32,7 @@ services:
       - ./releases:/app/releases:ro
 
   gateway-prod:
-    image: arm-driver-app-gateway:web-removed-20261120
+    image: arm-driver-app-gateway-prod:photo-20261127
     logging:
       driver: json-file
       options:
